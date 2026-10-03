@@ -10,4 +10,5 @@ func RegisterUserRouter(api *gin.RouterGroup, authController controllers.AuthCon
 	user := api.Group("/users")
 
 	user.POST("/register", authController.Register)
+	user.POST("/login", authController.Login)
 }
