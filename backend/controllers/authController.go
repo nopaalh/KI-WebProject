@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
 
 	"project1/services"
@@ -43,6 +44,12 @@ func (c *AuthController) Register(ctx *gin.Context) {
 	)
 
 	if err != nil {
+		if errors.Is(err, services.ErrUsernameExist) {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"message": err.Error(),
+			})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"message": err.Error(),
 		})
