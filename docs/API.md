@@ -13,7 +13,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Profil pengguna / endpoint `/me` | Belum tersedia |
 | Refresh token dan logout server-side | Belum tersedia |
 | Upload, daftar, download, dan enkripsi/dekripsi file | Belum tersedia; baru ada model database `File` |
-| CORS untuk akses lintas origin dari browser | Belum dikonfigurasi |
+| CORS untuk akses lintas origin dari browser | Tersedia |
 
 **FrontEnd saat ini bisa mengintegrasikan form register dan login.** Jangan menganggap model database sebagai endpoint API yang sudah dapat dipanggil.
 

@@ -6,7 +6,7 @@ import (
 	"project1/controllers"
 )
 
-func RegisterUserRouter(api *gin.RouterGroup, authController controllers.AuthController) {
+func RegisterUserRouter(api *gin.RouterGroup, authController *controllers.AuthController) {
 	user := api.Group("/users")
 
 	user.POST("/register", authController.Register)
