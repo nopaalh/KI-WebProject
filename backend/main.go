@@ -3,9 +3,12 @@ package main
 import (
 	"os"
 	"project1/config"
+	"project1/controllers"
 	"project1/models"
+	"project1/repositories"
+	"project1/routers"
+	"project1/services"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -24,7 +27,14 @@ func main() {
 	if err != nil {
 		panic("Failed to migrate database: " + err.Error())
 	}
-	r := gin.Default()
+
+	userRepo := repositories.NewUserRepository(config.DB)
+	authService := services.NewAuthService(userRepo)
+	authController := controllers.NewAuthController(authService)
+
+	r := routers.SetupRouter(routers.Controller{
+		AuthController: authController,
+	})
 
 	PORT := os.Getenv("SERVER_PORT")
 
