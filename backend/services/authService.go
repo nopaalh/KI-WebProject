@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"project1/models"
 	"project1/repositories"
 	"project1/utils"
@@ -24,11 +23,11 @@ func NewAuthService(userRepo *repositories.UserRepository) *AuthService {
 }
 
 func (s *AuthService) Register(name string, username string, password string) error {
-	existingUser, err := s.UserRepo.FindByUsername(username)
-
-	if err == nil && existingUser != nil {
-		return fmt.Errorf("%w", ErrUsernameExist)
-	}
+	// 	existingUser, err := s.UserRepo.FindByUsername(username)
+	//
+	// 	if err == nil && existingUser != nil {
+	// 		return fmt.Errorf("%w", ErrUsernameExist)
+	// 	}
 
 	passwordHash, err := bcrypt.GenerateFromPassword(
 		[]byte(password),
