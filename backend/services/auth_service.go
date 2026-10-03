@@ -1,4 +1,4 @@
-package service
+package services
 
 import (
 	"project1/models"
