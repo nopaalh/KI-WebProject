@@ -49,17 +49,15 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .choosing .scene { margin-bottom: 40px; }
 .opened .slot { min-height: 680px; aspect-ratio: auto; }
 .opened .character { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; }
-.opened .portrait { position: relative; inset: auto; flex: none; width: 100%; max-width: 320px; aspect-ratio: 1 / 2; background-size: 200% 100%; }
+.opened .portrait { position: relative; inset: auto; flex: none; width: 100%; max-width: 320px; aspect-ratio: 1331 / 2362; background-size: 200% 100%; }
 .opened .role-label { position: relative; inset: auto; flex: none; padding-bottom: 14px; }
 .opened .role-label::after { bottom: 0; }
-.slot { --direction: -1; min-width: 0; position: relative; aspect-ratio: 1 / 2; }
+.slot { --direction: -1; min-width: 0; position: relative; aspect-ratio: 1331 / 2362; }
 .character { display: block; position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; }
-.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/patient-doctor-editorial.png'); background-size: 200% 100%; background-repeat: no-repeat; }
+.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/illustrator.png'); background-size: 200% 100%; background-repeat: no-repeat; mix-blend-mode: multiply; }
 .patient .portrait, .patient .fragment { background-position: left center; }
 .doctor .portrait, .doctor .fragment { background-position: right center; }
-.choosing .patient { --nudge: 16%; }
 .doctor { --direction: 1; }
-.choosing .doctor { --nudge: -16%; }
 .portrait { pointer-events: none; transform-origin: 50% 70%; transform: translate(var(--nudge, 0%), 0) scale(1); transition: transform 750ms cubic-bezier(.16,1,.3,1), filter 600ms ease, opacity 600ms ease; }
 .blurred .portrait { transform: translate(calc(var(--nudge, 0%) + var(--direction) * 10px), 8px) scale(.965); filter: blur(9px); opacity: .28; }
 .character:not(.still):hover .portrait, .character:not(.still):focus-visible .portrait { transform: translate(calc(var(--nudge, 0%) + var(--direction) * 5px), -10px) scale(1.025); filter: drop-shadow(0 18px 18px #20334a18); }
@@ -69,8 +67,6 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .role-label::after { content: ''; position: absolute; left: calc(50% - 12px); bottom: -11px; width: 24px; height: 3px; background: #0071e3; border-radius: 3px; transform: scaleX(0); transition: transform 220ms ease; }
 .character:hover .role-label::after, .character:focus-visible .role-label::after, .still .role-label::after { transform: scaleX(1); }
 .shatter { position: absolute; inset: 0; pointer-events: none; }
-.patient .shatter { transform: translateX(16%); }
-.doctor .shatter { transform: translateX(-16%); }
 .fragment { animation: break-apart 620ms cubic-bezier(.35,0,.7,.4) both; animation-delay: calc(var(--i) * 5ms); }
 @keyframes break-apart {
   0% { opacity: 1; transform: translate(0,0) rotate(0); filter: blur(0); }
