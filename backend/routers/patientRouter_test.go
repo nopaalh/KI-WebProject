@@ -21,8 +21,9 @@ import (
 const validProfileJSON = `{"weight_kg":65.5,"height_cm":170,"age":0,"nik":"0000000000000001","bpjs_number":"0000000000001"}`
 
 type profileRouteRepository struct {
-	stored *models.PatientProfile
-	err    error
+	stored  *models.PatientProfile
+	err     error
+	findErr error
 }
 
 func (r *profileRouteRepository) Create(profile *models.PatientProfile) error {
@@ -35,6 +36,16 @@ func (r *profileRouteRepository) Create(profile *models.PatientProfile) error {
 	profile.ID = 12
 	r.stored = profile
 	return nil
+}
+
+func (r *profileRouteRepository) FindByUserID(userID uint) (*models.PatientProfile, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	if r.stored == nil || r.stored.UserID != userID {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return r.stored, nil
 }
 
 type profileRouteUsers struct {
