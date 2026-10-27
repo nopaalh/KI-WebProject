@@ -68,15 +68,15 @@ func (s *PatientProfileService) Create(userID uint, input CreatePatientProfileIn
 		UserID: userID, UserRole: models.RolePatient,
 		WeightKG: input.WeightKG, HeightCM: input.HeightCM, Age: *input.Age,
 	}
-	profile.NIKAES, profile.NIKDES, err = s.encryptIdentity(input.NIK)
+	profile.NIKAES, profile.NIKDES, profile.NIKRC4, err = s.encryptIdentity(input.NIK)
 	if err != nil {
 		return nil, err
 	}
-	profile.BPJSNumberAES, profile.BPJSNumberDES, err = s.encryptIdentity(input.BPJSNumber)
+	profile.BPJSNumberAES, profile.BPJSNumberDES, profile.BPJSNumberRC4, err = s.encryptIdentity(input.BPJSNumber)
 	if err != nil {
 		return nil, err
 	}
-	// RC4 remains NULL until its implementation is available; never substitute plaintext.
+
 	if err := s.profiles.Create(profile); err != nil {
 		return nil, err
 	}
@@ -117,24 +117,28 @@ func profileDigits(value string, length int) bool {
 	return true
 }
 
-func (s *PatientProfileService) encryptIdentity(value string) ([]byte, []byte, error) {
+func (s *PatientProfileService) encryptIdentity(value string) ([]byte, []byte, []byte, error) {
 	plaintext := []byte(value)
 	aes, err := utils.EncryptAESFile(plaintext, s.key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encrypt profile with AES: %w", err)
+		return nil, nil, nil, fmt.Errorf("encrypt profile with AES: %w", err)
 	}
 	des, err := utils.EncryptDESFile(plaintext, s.key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encrypt profile with DES: %w", err)
+		return nil, nil, nil, fmt.Errorf("encrypt profile with DES: %w", err)
+	}
+	rc4, err := utils.EncryptRC4File(plaintext, s.key)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encrypt profile with RC4: %w", err)
 	}
 	for _, cipher := range []struct {
 		data    []byte
 		decrypt func([]byte, [32]byte) ([]byte, error)
-	}{{aes, utils.DecryptAESFile}, {des, utils.DecryptDESFile}} {
+	}{{aes, utils.DecryptAESFile}, {des, utils.DecryptDESFile}, {rc4, utils.DecryptRC4File}} {
 		decoded, err := cipher.decrypt(cipher.data, s.key)
 		if err != nil || !bytes.Equal(decoded, plaintext) {
-			return nil, nil, errors.New("profile encryption round-trip verification failed")
+			return nil, nil, nil, errors.New("profile encryption round-trip verification failed")
 		}
 	}
-	return aes, des, nil
+	return aes, des, rc4, nil
 }
