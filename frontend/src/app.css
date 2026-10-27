@@ -53,7 +53,7 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .opened .role-label::after { bottom: 0; }
 .slot { --direction: -1; min-width: 0; position: relative; aspect-ratio: 1 / 2; }
 .character { display: block; position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; }
-.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/patient-doctor-v2.png'); background-size: 200% 100%; background-repeat: no-repeat; }
+.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/patient-doctor-editorial.png'); background-size: 200% 100%; background-repeat: no-repeat; }
 .patient .portrait, .patient .fragment { background-position: left center; }
 .doctor .portrait, .doctor .fragment { background-position: right center; }
 .choosing .patient { --nudge: 16%; }
