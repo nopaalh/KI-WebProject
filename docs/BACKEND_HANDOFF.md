@@ -1,42 +1,143 @@
-# Backend Handoff — Pembagian Sisa Pekerjaan
+# Backend Handoff — Portal Pasien dan Rumah Sakit
 
-Dokumen ini membagi sisa pekerjaan backend Assignment 1 antara **nopaalh (BE-1)** dan **Kamal (BE-2)**. Titik awalnya adalah commit `61d0b18`: auth, AES-128-CBC-HMAC buatan tangan, dan pipeline file AES dianggap selesai dan tidak diubah.
+> Revisi ini menggantikan skenario handoff lama: “sistem internal untuk tenaga medis; hanya pengunggah yang dapat mendekripsi”. Skenario baru melibatkan pasien dan petugas rumah sakit dengan kewenangan berbeda.
 
-## 1. Keputusan yang sudah diambil
+## 1. Tujuan dan batas aplikasi
 
-> Skenario dan model kepemilikan adalah **usulan BE**; perlu dikonfirmasi oleh seluruh tim (4 orang).
+Assignment memakai skenario **portal pasien dan rumah sakit**. Pasien menyerahkan data/dokumen pribadi dan mengikuti perkembangan hasil pemeriksaan. Petugas mengelola rekam medis serta menyerahkan hasil kepada pasien terkait.
 
-| Topik | Keputusan | Alasan singkat |
+Scope hanya **satu rumah sakit**. Tidak perlu multi-hospital, microservices, penugasan dokter per pasien, message broker, blockchain, atau WebSocket.
+
+Arsitektur yang disepakati:
+
+- Satu frontend.
+- Satu backend Go; gunakan struktur Gin/GORM yang sudah tersedia.
+- PostgreSQL untuk data aplikasi.
+- File terenkripsi disimpan di server.
+- Backend menjadi sumber kebenaran autentikasi, otorisasi, versi, dan status rekam medis.
+- Refresh atau polling API untuk pembaruan tampilan pasien.
+
+## 2. Status aktual vs rencana
+
+Baseline checkout yang diperiksa adalah `b00671d`. Commit ini hanya referensi pemeriksaan, bukan jaminan selalu merupakan versi remote terbaru. Periksa kode dan Git sebelum mulai bekerja.
+
+| Bagian | Status saat handoff ini ditulis |
+| --- | --- |
+| Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada dalam baseline |
+| Model `User` dan `File` | Sudah ada dalam baseline |
+| Upload, daftar/metadata file sendiri, dekripsi file AES | Sudah ada; query dibatasi `user_id` |
+| AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
+| Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
+| Batas upload | Saat ini 8 MiB; bukan 25 MiB |
+| DES dan RC4 dalam pipeline penyimpanan | Belum tersedia pada baseline; kolom path di model bukan bukti cipher sudah berjalan |
+| Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
+| Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
+| Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |
+| Perlindungan seluruh data sensitif dengan tiga cipher | Belum terpenuhi; nama user dan metadata file masih berupa field biasa |
+
+Perubahan lokal role menyediakan fondasi identitas saja, **belum RBAC rumah sakit lengkap**. Endpoint file tetap owner-only. Migrasi role belum dijalankan ke database dalam sesi ini. Detail perubahan lokal ada di [ROLES.md](ROLES.md).
+
+Preview HTML dari ZIP, bila dipakai, adalah **demo dengan data contoh**, bukan frontend final. Login/upload/enkripsi/download dalam preview itu tidak boleh dianggap operasi backend sungguhan. Jangan menimpa repo utama dengan ZIP tanpa membandingkan kode.
+
+## 3. Role dan hak akses yang disepakati
+
+Dua role aplikasi: **pasien** dan **petugas rumah sakit**, termasuk dokter sebagai pengguna berwenang. Penamaan teknis `patient` dan `doctor` sedang dipakai dalam perubahan lokal; `doctor` mewakili petugas berwenang untuk scope ini, bukan rancangan hierarki profesi rumah sakit.
+
+| Operasi | Pasien | Petugas/dokter |
 | --- | --- | --- |
-| Skenario | Sistem internal rumah sakit untuk tenaga medis | Data kesehatan termasuk data pribadi **spesifik** (UU PDP Pasal 4 ayat 2); rekam medis elektronik juga diatur Permenkes 24/2022 |
-| Pemilik data | Tenaga medis yang mengunggah; hanya dia yang dapat mendekripsi | Memenuhi syarat "only an authenticated user may get their own data back" tanpa RBAC; dijustifikasi sebagai *need-to-know / least privilege*. Query `user_id` yang ada tetap dipakai |
-| Cipher | AES-128, **single DES**, RC4 — semua buatan tangan | Soal meminta DES, bukan 3DES. Implementasi manual diuji terhadap stdlib Go |
-| Mode | AES-CBC (sudah ada), DES-CBC; CTR generik hanya untuk benchmark | Mode AES dan DES sama sehingga perbandingan mengukur biaya cipher, bukan biaya mode. CTR dipakai untuk analisis video (random access, paralel, tanpa padding) |
-| RC4 | Nonce acak per file, buang 1536 byte awal keystream (RFC 4345), HMAC-SHA256 | Keystream yang dipakai ulang membocorkan `P1 ⊕ P2` (Stallings §8.4); byte awal RC4 bias; RC4 tidak punya integritas |
-| Kunci | Satu master key `FILE_ENCRYPTION_KEY`, diturunkan per cipher dengan label HMAC | Mengikuti pola `deriveAESFileKeys`; tidak perlu env baru |
-| Data terstruktur | Satu blob JSON per record, dienkripsi ×3 | Polanya sama dengan file; field terenkripsi memang tidak bisa di-query per field |
-| Nama file | `File.OriginalName` ikut dienkripsi ×3 | Nama seperti `hasil_lab_budi_HIV.pdf` membocorkan data kesehatan |
-| Ukuran video | Tetap in-memory; batas ditentukan dari hasil benchmark (placeholder 25 MiB) | Pipeline memuat seluruh file (puncak memori ±7× ukuran file dengan 3 cipher); streaming dicatat sebagai *future work* |
+| Mengisi/upload data dan dokumen pribadi | Miliknya sendiri | Mengunggah hasil/laporan untuk pasien terkait |
+| Melihat/mengambil data pasien dan lampirannya | Hanya miliknya sendiri | Semua pasien dalam rumah sakit ini |
+| Melihat rekam medis draf/sedang diproses maupun final | Miliknya sendiri, dengan label status jelas | Semua pasien |
+| Membuat/memperbarui rekam medis | Tidak | Ya, untuk pasien terkait |
+| Melihat riwayat rekam medis | Miliknya sendiri | Sesuai kewenangan atas seluruh pasien |
+| Mengubah/menghapus dokumen yang pasien upload sendiri | Belum disepakati; bukan kewajiban tahap ini | Detail pengelolaan belum disepakati |
 
-## 2. Pembagian
+Ketentuan backend:
 
-| Kode | Pekerjaan | PIC | Lokasi utama | Bergantung pada |
-| --- | --- | --- | --- | --- |
-| A | DES core (IP/FP, PC-1/PC-2, key schedule, E, 8 S-box, P, 16 ronde Feistel) | Kamal | `backend/utils/des.go` | — |
-| B | RC4 core (KSA + PRGA, sesuai slide W5 23–24) | Kamal | `backend/utils/rc4.go` | — |
-| C | Mode generik: CBC + PKCS7, CTR | Kamal | `backend/utils/modes.go` | — |
-| D | Envelope file DES dan RC4 | Kamal | `backend/utils/des_file.go`, `rc4_file.go` | A, B, C |
-| H | Benchmark dan analisis (mikro, makro, ciphertext) | Kamal | `backend/utils/*_bench_test.go`, skrip makro | D; makro juga E |
-| E | Integrasi DES dan RC4 ke `FileService`, controller, model, docs | nopaalh | `services/`, `controllers/`, `models/`, `docs/` | kontrak D (§3) |
-| F | `PatientRecord` terenkripsi ×3 + enkripsi `OriginalName` | nopaalh | `models/`, `repositories/`, `services/`, `controllers/` | kontrak D |
-| G | Menaikkan batas upload untuk video | nopaalh | `services.MaxFileSize` | angka throughput dari H-mikro |
+- Register publik, jika disediakan, **hanya membuat pasien**. Mengirim `role: doctor` tidak boleh memberikan hak petugas.
+- Akun petugas dibuat/disediakan pengelola; tidak perlu membangun dashboard admin hanya untuk memenuhi hal ini.
+- Gunakan **role-based access control ditambah patient ownership** pada setiap endpoint terkait, termasuk detail, download, lampiran, dan history.
+- `user_id` pengunggah saja tidak cukup: dokumen yang diunggah dokter untuk pasien harus dapat diambil pasien yang bersangkutan. Relasi pasien pemilik/subjek data dan identitas pengunggah/penulis perlu dibedakan.
+- UI yang menyembunyikan tombol bukan mekanisme otorisasi. Backend tidak mempercayai role atau identitas pasien dari request tanpa memeriksa kewenangannya.
+- Belum ada pembatasan berdasarkan dokter yang ditugaskan ke pasien; fitur tersebut sengaja di luar scope.
 
-Urutan Kamal: A → B → C → D → H-mikro (kirim angka throughput untuk G) → H-makro (setelah E).
-nopaalh bisa mengerjakan F dan G-struktur lebih dulu dengan kontrak §3, lalu E begitu D masuk.
+Interpretasi “their own data”: pasien hanya boleh mengambil data dirinya; petugas mempunyai kewenangan berdasarkan role untuk mengelola data pasien rumah sakit. Jelaskan interpretasi ini dalam laporan. Jika rubrik pengajar ternyata membatasi akses hanya pada pengunggah untuk semua role, perlu klarifikasi karena akan bertentangan dengan skenario ini.
 
-## 3. Kontrak antar-BE
+## 4. Alur rekam medis dan riwayat
 
-Kontrak ini dikunci sejak awal agar E dan F bisa dikerjakan paralel. Signature-nya identik dengan `EncryptAESFile`/`DecryptAESFile`:
+Contoh alur: pasien menjalani MRI dan menunggu hasil.
+
+1. Petugas membuat rekam medis berstatus draf/sedang diproses.
+2. Pasien dapat melihat versi sementara dengan label **hasil belum final**.
+3. Dokter/petugas memperbarui catatan dan menambahkan hasil pemeriksaan/lampiran.
+4. Setiap perubahan rekam medis yang disimpan menghasilkan **versi baru**, bukan menimpa riwayat sebelumnya.
+5. Frontend pasien mengambil pembaruan melalui refresh atau polling API; tampilkan indikator **“Ada pembaruan”** ketika versi baru tersedia.
+6. Petugas menandai hasil final setelah selesai.
+
+Backend perlu menyimpan versi sebelumnya, identitas penulis perubahan, dan timestamp agar riwayat dapat ditelusuri. Status draf/final dan versi terbaru ditentukan backend, bukan hanya state frontend.
+
+Detail nama status, bentuk payload, relasi tabel, dan penanganan dua petugas yang menyimpan bersamaan masih perlu disepakati. Tidak perlu email, push notification, atau WebSocket.
+
+Batas klaim:
+
+- Sinkronisasi memastikan tampilan mengikuti versi terbaru, bukan menjamin catatan benar secara medis.
+- Audit history tidak otomatis membuktikan data kebal manipulasi oleh administrator.
+- Integritas kriptografis, kebenaran medis, dan pertanggungjawaban perubahan adalah hal berbeda.
+
+## 5. Empat jenis data dan privasi
+
+Gunakan **data sintetis** untuk seluruh demonstrasi, fixture, dan benchmark; jangan memakai data pasien atau KTP asli.
+
+| Jenis data assignment | Contoh dalam skenario |
+| --- | --- |
+| Personal data | Identitas dan kontak pasien |
+| Scanned identity documents | Scan KTP/paspor sintetis |
+| Office documents | Laporan pemeriksaan/tindakan dalam PDF, Word, atau format kantor lain |
+| Video | Rekaman gerakan untuk evaluasi rehabilitasi atau video medis sintetis yang relevan |
+
+Gambar MRI tidak otomatis memenuhi persyaratan video.
+
+Informasi kesehatan merupakan data pribadi spesifik menurut UU PDP. Identitas, kontak, isi rekam medis, dan seluruh isi file pasien diperlakukan sebagai privat; jelaskan klasifikasi dengan rujukan UU PDP/GDPR yang sesuai dalam laporan. Jangan mengklaim seluruh aplikasi patuh regulasi hanya karena memakai enkripsi.
+
+## 6. Cakupan enkripsi yang disepakati
+
+Setiap isi sensitif disimpan sebagai **tiga representasi terenkripsi dari plaintext yang sama**, masing-masing AES, DES, dan RC4. Bukan pengguna memilih satu cipher saat upload lalu dua cipher lain tidak digunakan.
+
+Cakupannya meliputi:
+
+- Data pribadi pasien.
+- Teks rekam medis, termasuk draf.
+- Seluruh versi riwayat yang disimpan.
+- Dokumen identitas, laporan kantor, video, dan lampiran lain.
+- Metadata sensitif, misalnya nama file yang dapat mengungkap identitas atau diagnosis.
+
+Password tetap disimpan sebagai hash password yang sesuai (bcrypt sudah digunakan), bukan plaintext atau enkripsi reversibel tiga cipher.
+
+Metadata untuk query perlu dirancang eksplisit. Identitas relasi pasien/penulis, versi, status, waktu, ukuran, tipe file, dan lokasi ciphertext adalah **daftar yang perlu ditinjau**, bukan otomatis daftar field yang boleh plaintext. Tentukan field minimum yang dibutuhkan untuk query, risiko kebocorannya, serta field mana yang masuk payload terenkripsi. Penyimpanan `User.Name` plaintext tidak lagi dianggap pengecualian yang sudah disetujui.
+
+Persyaratan kriptografi:
+
+- AES dan DES memakai mode selain ECB.
+- Lindungi integritas, bukan kerahasiaan saja; verifikasi autentikasi sebelum mengembalikan plaintext.
+- Kunci/secret backend tidak dikirim ke frontend.
+- Pengelolaan master key, pemisahan kunci per fungsi/cipher, nonce/IV, format envelope, dan kegagalan verifikasi harus dijustifikasi.
+- Uji dekripsi mengembalikan bytes yang **identik** dengan input, bukan hanya file dapat dibuka.
+- DES dan RC4 hanya untuk assignment/perbandingan akademik, bukan keamanan medis produksi. Menyimpan tiga representasi juga membuka jalur serangan melalui cipher terlemah.
+
+## 7. Usulan teknis dari handoff lama — perlu konfirmasi
+
+Bagian ini dipertahankan agar pekerjaan antar-BE tidak kehilangan konteks. **Ini usulan kontrak, bukan keputusan final seluruh tim dan bukan bukti implementasi tersedia.** Assignment membolehkan library; implementasi manual bukan kewajiban assignment berdasarkan konteks yang tersedia.
+
+### Cipher dan penyimpanan
+
+- AES saat ini: AES-128-CBC + PKCS7 + HMAC-SHA256, envelope `AES1`.
+- Usulan DES: **single DES**, CBC + PKCS7 + HMAC-SHA256; bukan 3DES.
+- Usulan RC4: nonce acak per payload, kunci turunan berbeda per nonce, buang 1536 byte awal keystream, lalu HMAC-SHA256. Ini tidak menjadikan RC4 layak untuk produksi.
+- Usulan master key: gunakan `FILE_ENCRYPTION_KEY` 32 byte dengan derivasi berlabel per cipher dan per fungsi enkripsi/MAC, mengikuti pola AES yang ada.
+- Usulan data terstruktur: satu payload JSON sensitif per record/versi, dienkripsi tiga kali. Konsekuensinya field di dalam payload tidak dapat di-query langsung.
+- Pipeline saat ini in-memory. Batas video perlu diuji berdasarkan memori dan waktu proses; angka 25 MiB dari handoff lama **hanya usulan**, bukan batas aktif.
+
+### Usulan kontrak utilitas
 
 ```go
 func EncryptDESFile(plaintext []byte, key [32]byte) ([]byte, error)
@@ -45,52 +146,93 @@ func EncryptRC4File(plaintext []byte, key [32]byte) ([]byte, error)
 func DecryptRC4File(encrypted []byte, key [32]byte) ([]byte, error)
 ```
 
-Perilakunya sama dengan AES: HMAC diverifikasi sebelum dekripsi, error tidak pernah mengembalikan plaintext parsial, dan `key` adalah master key 32 byte yang sama.
+Sama seperti AES: key adalah master key, HMAC diverifikasi sebelum dekripsi, dan error tidak mengembalikan plaintext parsial.
 
-| Envelope | Format | Turunan kunci |
+| Envelope usulan | Format | Turunan kunci usulan |
 | --- | --- | --- |
-| `DES1` | `"DES1" ‖ IV 8 B ‖ DES-CBC + PKCS7 (blok 8) ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption")[:8]`, mac = `HMAC(master, "DES1/authentication")` |
+| `DES1` | `"DES1" ‖ IV 8 B ‖ DES-CBC + PKCS7 ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption")[:8]`, mac = `HMAC(master, "DES1/authentication")` |
 | `RC41` | `"RC41" ‖ nonce 16 B ‖ RC4-drop1536 ‖ HMAC-SHA256` | enc = `HMAC(master, "RC41/encryption" ‖ nonce)[:16]`, mac = `HMAC(master, "RC41/authentication")` |
 
-HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`, sama dengan `AES1`.
+HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini harus disepakati sebelum producer/consumer diintegrasikan.
 
-Saran untuk E (keputusan akhir di nopaalh): kolom timing `DES*/RC4*TimeNS` setara AES, dan pemilihan algoritma saat dekripsi lewat query, mis. `POST /api/files/:id/decrypt?algorithm=aes|des|rc4`.
+Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR generik untuk eksperimen tambahan dari handoff lama bukan kebutuhan inti dan tidak perlu dikerjakan sebelum kewajiban utama selesai.
 
-## 4. Syarat analisis (dari slide W4 18–19)
+## 8. Usulan pembagian dan urutan kerja
 
-Soal asli di slide menambahkan poin yang tidak ada di ringkasan tugas:
+Pembagian ini memakai PIC handoff lama, **perlu dikonfirmasi ulang** karena scope aplikasi berubah. Tidak menetapkan deadline atau menganggap perubahan sudah dikerjakan.
 
-- Analisis perbedaan antar cipher dari **running time** dan **ciphertext yang dihasilkan**.
-- **"Download the data multiple times and measure the running time!"**
-- Program harus **bug-free** untuk nilai penuh.
-
-Rencana H:
-
-| Lapis | Cara | Menjawab |
+| Bagian | Usulan PIC | Cakupan |
 | --- | --- | --- |
-| Mikro | `go test -bench -count=10` + `benchstat`; file sampel nyata (scan KTP, PDF, DOCX, MP4) dan ukuran sintetis bertingkat; termasuk CBC vs CTR serta baseline `crypto/aes` dan `crypto/des` | Biaya murni cipher dan mode |
-| Makro | Panggil endpoint dekripsi N=30× per file per algoritma; catat `X-Decryption-Time-Ns` dan latensi total | Instruksi "download multiple times" |
-| Ciphertext | Overhead ukuran (padding/IV/MAC), entropi byte, plaintext sama → ciphertext berbeda, efek drop RC4 | "the resulting cipher text" |
+| DES/RC4 dan envelope autentikasinya | Kamal (BE-2) | Core/library sesuai keputusan tim, mode DES, derivasi kunci, format envelope, test vector dan tampering test |
+| Evaluasi cipher | Kamal (BE-2), koordinasi dengan BE-1 | Benchmark mikro, pengukuran download berulang, round-trip, overhead, interpretasi |
+| Role dan akses pasien/dokter | nopaalh (BE-1) | Provisioning dokter, backend role checks, patient ownership; review perubahan role lokal lebih dahulu |
+| Data pasien dan rekam medis | nopaalh (BE-1) | Relasi pasien, payload sensitif, draf/final, versi, penulis, timestamp, API history |
+| Integrasi tiga cipher | nopaalh (BE-1), memakai kontrak BE-2 | Penyimpanan file dan payload sensitif ×3, metadata privat, respons API, penanganan kegagalan |
+| Kontrak frontend/backend | Tim frontend bersama BE-1 | Request/response, status dan error, polling/versi, download, loading/success/error state |
 
-Hasilnya diekspor ke CSV untuk grafik laporan.
+Urutan yang disarankan:
 
-## 5. Poin wajib untuk laporan
+1. Review handoff ini: role, ownership, relasi pasien, status/versi, metadata privat, dan kontrak cipher.
+2. Sepakati model/API minimum; jangan mengubah kontrak paralel tanpa koordinasi.
+3. Pekerjaan cipher dapat berjalan paralel dengan role, relasi pasien, dan rekam medis.
+4. Integrasikan tiga cipher untuk seluruh payload sensitif dan lampiran, termasuk history.
+5. Uji alur pasien/petugas, penolakan akses tidak sah, integritas, persistensi, dan sinkronisasi.
+6. Jalankan evaluasi pada implementasi yang benar-benar dipakai, kemudian tulis interpretasi laporan.
 
-- **Weakest link:** setiap data disimpan dalam tiga salinan terenkripsi dari plaintext yang sama, jadi kerahasiaannya setara cipher terlemah. DES 56-bit sudah bisa di-brute-force sejak 1998 (EFF Deep Crack).
-- **Implementasi, bukan algoritma:** cipher buatan tangan tidak dioptimasi (AES tanpa T-table, S-box dihitung ulang per operasi file). Selisih kecepatan harus dibaca dengan baseline stdlib di sampingnya.
-- **Least privilege:** alasan hanya pengunggah yang dapat mendekripsi.
-- **Klasifikasi UU PDP** field `PatientRecord`: umum (nama, jenis kelamin, NIK, tanggal lahir, alamat, telepon) vs spesifik/kesehatan (no. RM, no. BPJS, golongan darah, alergi, diagnosis).
-- **Keterbatasan:** pencarian per field tidak didukung, video dibatasi ukuran (belum streaming), cipher buatan tangan tidak constant-time.
+Batas upload video ditentukan dari pengujian throughput **dan** penggunaan memori, bukan throughput saja. Perubahan schema perlu mempertimbangkan record/file AES lama: jangan menganggap data lama otomatis sudah punya tiga representasi.
 
-## 6. Keputusan terbuka
+## 9. Evaluasi dan verifikasi
 
-- Konfirmasi skenario dan model kepemilikan oleh seluruh tim.
-- `User.Name` (data staf) saat ini plaintext. Default: tidak dienkripsi dan dijelaskan di laporan, karena mengubahnya menyentuh alur auth.
-- Angka akhir batas upload video, menunggu H-mikro.
-- `backend/.env.example` masih berisi `AES_KEY`, sedangkan `main.go` membaca `FILE_ENCRYPTION_KEY` (64 hex) dan `FILE_STORAGE_DIR`.
+Evaluasi wajib membandingkan ketiga cipher memakai input yang sama, variasi tipe/ukuran (termasuk dokumen kecil dan video lebih besar), dan pengulangan yang memadai.
 
-## 7. Aturan kerja
+Metrik minimum yang diusulkan:
 
-- Commit kecil dan sering dengan format `feat(scope): ...` / `test(scope): ...` / `docs(scope): ...`; riwayat commit ikut dinilai.
-- Setiap cipher dan mode buatan tangan wajib diuji terhadap stdlib Go dan test vector resmi, mengikuti pola `utils/aes_file_test.go`.
-- Fitur yang mengubah API wajib memperbarui `docs/API.md` / `docs/FILES.md`.
+- Waktu enkripsi dan dekripsi.
+- Throughput dengan satuan jelas.
+- Ukuran hasil dan overhead penyimpanan.
+- Keberhasilan round-trip identik secara byte.
+
+Pisahkan waktu kriptografi dari jaringan, upload, disk, dan database. Catat lingkungan, implementasi/library, ukuran input, jumlah pengulangan, dan metode agregasi. Jangan membuat angka hasil.
+
+Usulan pelaksanaan dari handoff lama:
+
+- Mikro: benchmark Go berulang, misalnya `go test -bench ... -count=10`, baseline stdlib jika memakai cipher buatan tangan.
+- Makro: download/dekripsi berulang, misalnya 30 kali per file per cipher; bedakan latensi endpoint dan durasi kriptografi backend.
+- Ciphertext: bandingkan overhead dan variasi hasil untuk plaintext sama. Statistik byte/entropi saja bukan bukti keamanan.
+
+Handoff lama menyebut instruksi slide “download the data multiple times” dan analisis ciphertext. Periksa materi assignment asli sebelum mengutipnya sebagai ketentuan tambahan; slide tersebut belum diverifikasi dalam revisi ini.
+
+Uji fungsional/keamanan yang perlu tersedia:
+
+- Register publik tidak bisa memberi role dokter.
+- Pasien A tidak bisa mengambil data/lampiran/history pasien B, termasuk lewat ID yang ditebak.
+- Pasien tidak bisa membuat/mengubah rekam medis rumah sakit.
+- Petugas dapat mengelola data pasien sesuai scope satu rumah sakit.
+- Pasien melihat draf/final dan perubahan versi miliknya tanpa kehilangan history.
+- Semua jenis data kembali utuh melalui masing-masing cipher; ciphertext rusak/kunci salah ditolak tanpa plaintext parsial.
+- Data yang berhasil disimpan tetap dapat didekripsi setelah restart dengan konfigurasi kunci yang benar.
+
+## 10. Hal yang masih perlu diputuskan tim
+
+- Konfirmasi penamaan role teknis `doctor` sebagai petugas berwenang untuk versi ini.
+- Bentuk tabel/payload dan endpoint pasien, rekam medis, versi, history, serta lampiran.
+- Nama status, penandaan final, dan penanganan update bersamaan.
+- Metadata minimum untuk query dan perlindungan identitas pada alur autentikasi.
+- Mode/format DES dan RC4, implementasi manual vs library, serta pengelolaan kunci final.
+- Penanganan data lama yang baru dilindungi AES; jangan menghapus data tanpa persetujuan.
+- Batas upload yang layak untuk video setelah pengujian.
+- Izin edit/delete dokumen unggahan pasien, hanya jika memang diperlukan.
+
+Search/filter, statistik dashboard, preview media, delete, dan halaman benchmark khusus bukan kewajiban eksplisit. Jangan menambahkannya sebelum kebutuhan inti terpenuhi atau ada permintaan.
+
+## 11. Laporan dan aturan kerja
+
+- Report maksimal **dua halaman A4**: skenario/manfaat, analisis dan alasannya, serta justifikasi arsitektur, mode, pengelolaan kunci, dan penyimpanan.
+- Jelaskan batas keamanan DES/RC4, implementasi edukasi, kebocoran metadata yang tersisa, serta batas audit history. Jangan menyamakan integritas dengan kebenaran medis.
+- Submission menyertakan link dan screenshot percakapan AI; hasil AI harus diverifikasi, bukan dianggap benar otomatis.
+- Baca kode aktual sebelum perubahan; dokumentasi bisa tertinggal.
+- Periksa status Git dan update repo bersama dengan menjaga perubahan lokal. Jangan menimpa repo dengan ZIP.
+- Commit berkala, kecil, dan bermakna sesuai koordinasi tim. **Jangan commit/push dari sesi bantuan tanpa permintaan eksplisit pengguna.**
+- Jika diminta push, gunakan repo bersama `https://github.com/nopaalh/KI-WebProject`, bukan fork pribadi; branch bersama `main`.
+- Perubahan kontrak API wajib memperbarui `docs/API.md`/`docs/FILES.md` dan memberi tahu tim frontend.
+- Cipher buatan tangan harus diverifikasi dengan test vector tepercaya dan pembanding library yang sesuai; seluruh jalur perlu diuji round-trip dan penolakan manipulasi.
