@@ -25,6 +25,7 @@ func main() {
 		&models.User{},
 		&models.File{},
 		&models.PatientProfile{},
+		&models.PatientKTP{},
 	)
 
 	if err != nil {
