@@ -31,6 +31,7 @@ button:disabled { cursor: default; }
 .wordmark-caption { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; letter-spacing: 0; }
 .account-nav { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 16px; margin-left: auto; }
 .account-hint { font-size: 12px; color: #111; }
+.account-role { padding: 6px 12px; border: 1px solid #dbe5f1; border-radius: 20px; background: #f1f6ff; font-size: 11px; }
 .account-action { min-height: 44px; padding: 10px 20px; border: 1px solid #111; border-radius: 24px; background: #111; color: #fff; font-size: 13px; font-weight: 500; transition: background 180ms, transform 180ms; }
 .account-action:hover { background: #303030; }
 .account-action:active { transform: scale(.98); }
@@ -82,10 +83,6 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .back:disabled { opacity: .5; }
 .auth { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 24px 0; overflow-wrap: anywhere; animation: form-in 650ms cubic-bezier(.2,.7,.2,1) both; }
 .form-heading { margin-bottom: 36px; }
-.profile { margin: 0; }
-.profile > div { padding: 18px 0; border-bottom: 1px solid #dfe5df; }
-.profile dt { font-size: 14px; }
-.profile dd { margin: 6px 0 0; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
 .auth h2 { margin: 0; font-size: 56px; font-weight: 600; letter-spacing: -1.8px; line-height: 1.1; color: #111111; }
 fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
 .field + .field { margin-top: 26px; }

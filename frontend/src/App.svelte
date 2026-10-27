@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
+  import Dashboard from './Dashboard.svelte'
 
   type Role = 'patient' | 'doctor'
   type CurrentUser = { id: number; name: string; username: string; role: Role }
@@ -157,71 +158,74 @@
 </script>
 
 <svelte:head>
-  <title>{currentUser ? 'Akun · Portal Pasien' : phase === 'choose' ? 'Portal Pasien' : mode === 'login' ? 'Masuk · Portal Pasien' : 'Daftar · Portal Pasien'}</title>
+  <title>{currentUser ? 'Dashboard · Portal Pasien' : phase === 'choose' ? 'Portal Pasien' : mode === 'login' ? 'Masuk · Portal Pasien' : 'Daftar · Portal Pasien'}</title>
   <meta name="description" content="Pilih pasien atau dokter untuk melanjutkan ke portal." />
   <link rel="icon" type="image/svg+xml" href="/images/portal-mark.svg" />
 </svelte:head>
 
 <div class="app-shell">
   <header class="topbar">
-    <button class="wordmark" type="button" onclick={reset} disabled={pending} aria-label="Portal Pasien, kembali ke pilihan peran">
+    <button class="wordmark" type="button" onclick={() => { if (!currentUser) reset() }} disabled={pending} aria-label={currentUser ? 'Portal Pasien' : 'Portal Pasien, kembali ke pilihan peran'}>
       <img src="/images/portal-mark.svg" alt="" width="34" height="34" />
       <span>Portal Pasien<span class="wordmark-caption">Ruang kesehatan Anda</span></span>
     </button>
     <nav class="account-nav" aria-label="Navigasi akun">
-      {#if phase !== 'choose'}
-        <button class="back" type="button" onclick={reset} disabled={pending} aria-label="Kembali memilih pasien atau dokter">Ganti peran</button>
+      {#if currentUser}
+        <span class="account-hint">{currentUser.name}</span>
+        <span class="account-role">{currentUser.role === 'patient' ? 'Pasien' : 'Dokter'}</span>
+        <button class="back" type="button" onclick={reset} disabled={pending}>Ganti akun</button>
+      {:else}
+        {#if phase !== 'choose'}
+          <button class="back" type="button" onclick={reset} disabled={pending} aria-label="Kembali memilih pasien atau dokter">Ganti peran</button>
+        {/if}
+        <span class="account-hint">{mode === 'login' ? 'Belum punya akun?' : 'Sudah terdaftar?'}</span>
+        <button class="account-action" type="button" onclick={switchMode} disabled={pending || phase === 'breaking'}>{mode === 'login' ? 'Buat akun' : 'Masuk ke akun'}</button>
       {/if}
-      <span class="account-hint">{mode === 'login' ? 'Belum punya akun?' : 'Sudah terdaftar?'}</span>
-      <button class="account-action" type="button" onclick={switchMode} disabled={pending || phase === 'breaking'}>{mode === 'login' ? 'Buat akun' : 'Masuk ke akun'}</button>
     </nav>
   </header>
 
-  <main class:choosing={phase === 'choose'} class:opened={phase !== 'choose'}>
+  {#if currentUser}
+    {#key currentUser.id}
+      <Dashboard user={currentUser} />
+    {/key}
+  {:else}
+    <main class:choosing={phase === 'choose'} class:opened={phase !== 'choose'}>
 
-    <header class="intro">
-      <img class="app-logo" src="/images/portal-mark.svg" alt="Logo Portal Pasien" width="64" height="64" />
-      <h1 class="intro-title">Selamat datang.</h1>
-      <p class="intro-description">{currentUser ? 'Akun Anda telah terhubung.' : phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
-      {#if phase === 'choose'}<p class="role-prompt">Masuk sebagai</p>{/if}
-    </header>
+      <header class="intro">
+        <img class="app-logo" src="/images/portal-mark.svg" alt="Logo Portal Pasien" width="64" height="64" />
+        <h1 class="intro-title">Selamat datang.</h1>
+        <p class="intro-description">{phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
+        {#if phase === 'choose'}<p class="role-prompt">Masuk sebagai</p>{/if}
+      </header>
 
-    <div class="scene" aria-busy={pending}>
-      {#each characters as character}
-        {@const isReplaced = selected !== null && selected !== character.role}
-        <div class="slot {character.role}" class:replaced={isReplaced} class:chosen={selected === character.role} class:blurred={phase === 'choose' && hovered !== null && hovered !== character.role}>
-          {#if !isReplaced}
-            <button
-              class="character"
-              class:still={phase !== 'choose'}
-              type="button"
-              aria-label={`Pilih ${character.label}`}
-              disabled={phase !== 'choose' || pending}
-              onpointerenter={(event) => { if (event.pointerType !== 'touch') hovered = character.role }}
-              onpointerleave={() => hovered = null}
-              onfocus={() => { if (phase === 'choose') hovered = character.role }}
-              onblur={() => hovered = null}
-              onclick={() => choose(character.role)}
-            >
-              <span class="portrait" aria-hidden="true"></span>
-              <span class="role-label">{character.label}</span>
-            </button>
-          {:else if phase === 'breaking'}
-            <div class="shatter" aria-hidden="true">
-              {#each Array(9) as _, index}
-                <span class="fragment" style={`--i:${index}; --x:${(index % 2 === 0 ? -1 : 1) * (22 + index * 7)}px; --r:${(index % 2 === 0 ? -1 : 1) * (3 + index)}deg; clip-path: inset(${index * 100 / 9}% 0 ${100 - (index + 1) * 100 / 9}% 0)`}></span>
-              {/each}
-            </div>
-          {:else}
-            <section class="auth" aria-labelledby="form-title">
-              {#if currentUser}
-                <div class="form-heading"><h2 id="form-title">Anda sudah masuk.</h2></div>
-                <dl class="profile" aria-label="Profil akun">
-                  <div><dt>Nama</dt><dd>{currentUser.name}</dd></div>
-                  <div><dt>Username</dt><dd>{currentUser.username}</dd></div>
-                  <div><dt>Peran</dt><dd>{currentUser.role === 'patient' ? 'Pasien' : 'Dokter'}</dd></div>
-                </dl>
-              {:else}
+      <div class="scene" aria-busy={pending}>
+        {#each characters as character}
+          {@const isReplaced = selected !== null && selected !== character.role}
+          <div class="slot {character.role}" class:replaced={isReplaced} class:chosen={selected === character.role} class:blurred={phase === 'choose' && hovered !== null && hovered !== character.role}>
+            {#if !isReplaced}
+              <button
+                class="character"
+                class:still={phase !== 'choose'}
+                type="button"
+                aria-label={`Pilih ${character.label}`}
+                disabled={phase !== 'choose' || pending}
+                onpointerenter={(event) => { if (event.pointerType !== 'touch') hovered = character.role }}
+                onpointerleave={() => hovered = null}
+                onfocus={() => { if (phase === 'choose') hovered = character.role }}
+                onblur={() => hovered = null}
+                onclick={() => choose(character.role)}
+              >
+                <span class="portrait" aria-hidden="true"></span>
+                <span class="role-label">{character.label}</span>
+              </button>
+            {:else if phase === 'breaking'}
+              <div class="shatter" aria-hidden="true">
+                {#each Array(9) as _, index}
+                  <span class="fragment" style={`--i:${index}; --x:${(index % 2 === 0 ? -1 : 1) * (22 + index * 7)}px; --r:${(index % 2 === 0 ? -1 : 1) * (3 + index)}deg; clip-path: inset(${index * 100 / 9}% 0 ${100 - (index + 1) * 100 / 9}% 0)`}></span>
+                {/each}
+              </div>
+            {:else}
+              <section class="auth" aria-labelledby="form-title">
                 <div class="form-heading">
                   <h2 id="form-title">{mode === 'login' ? 'Masuk' : 'Daftar'}</h2>
                 </div>
@@ -257,12 +261,12 @@
                 {:else}
                   <p class="switch">{mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} <button type="button" onclick={switchMode} disabled={pending}>{mode === 'login' ? 'Daftar' : 'Masuk'}</button></p>
                 {/if}
-              {/if}
-            </section>
-          {/if}
-        </div>
-      {/each}
-    </div>
-  </main>
+              </section>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </main>
+  {/if}
 
 </div>
