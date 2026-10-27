@@ -14,7 +14,8 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Refresh token dan logout server-side | Belum tersedia |
 | Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
-| RC4 dan DES | Belum tersedia |
+| Create profil pasien | Tersedia; `POST /api/patients/me/profile`, NIK/BPJS terenkripsi AES + DES, RC4 masih NULL; lihat [PATIENT_PROFILES.md](PATIENT_PROFILES.md) |
+| RC4 / integrasi DES | RC4 belum tersedia; DES tersedia untuk create profil, pipeline file masih AES |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
 **FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES.** Gunakan hanya endpoint yang tercantum; belum ada endpoint RC4 atau DES. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
