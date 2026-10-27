@@ -12,5 +12,6 @@ func RegisterUserRouter(api *gin.RouterGroup, authController *controllers.AuthCo
 
 	user.POST("/register", authController.Register)
 	user.POST("/login", authController.Login)
+	user.POST("/logout", authController.Logout)
 	user.GET("/me", middlewares.AuthMiddleware(), authController.Me)
 }
