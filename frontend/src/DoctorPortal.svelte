@@ -121,7 +121,7 @@
     <div class="overview"><div class="patient-card"><span>Pasien terdaftar</span><strong>{patients.length.toString().padStart(2, '0')}</strong></div><div class="patient-card"><span>Catatan dalam penyusunan</span><strong>{draftCount.toString().padStart(2, '0')}</strong></div><div class="patient-card overview-note"><img src="/images/document-stack.svg" alt="" width="80" height="70" /><p>Setiap pemeriksaan,<br />tercatat dengan jelas.</p></div></div>
     <section class="patient-card patient-list" aria-labelledby="patients-title">
       <div class="list-heading"><div><h2 id="patients-title">Daftar pasien</h2><p>Data contoh untuk mencoba alur layanan.</p></div><input type="search" placeholder="Cari nama atau nomor pasien" aria-label="Cari pasien" bind:value={search} /></div>
-      <div class="table-scroll"><table><thead><tr><th>Pasien</th><th>Nomor pasien</th><th>Rekam medis</th><th><span class="action-label">Tindakan</span></th></tr></thead><tbody>{#each filtered as item}<tr><td><div class="patient-name"><span class="avatar" aria-hidden="true">{item.name.split(' ').map(part => part[0]).join('')}</span><span><strong>{item.name}</strong><small>{item.age} tahun</small></span></div></td><td>{item.reference}</td><td>{item.records.length} pemeriksaan</td><td><button class="patient-button secondary" type="button" aria-label={`Buka pasien ${item.name}`} onclick={() => openPatient(item.id)}>Buka pasien</button></td></tr>{:else}<tr><td colspan="4" class="empty"><h3>Pasien tidak ditemukan.</h3><p>Coba nama atau nomor pasien lain.</p><button class="text-button" type="button" onclick={() => search = ''}>Tampilkan semua pasien</button></td></tr>{/each}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Pasien</th><th>Nomor pasien</th><th>Rekam medis</th><th><span class="action-label">Tindakan</span></th></tr></thead><tbody>{#each filtered as item}<tr><td><div class="patient-name"><img class="avatar" src={`/images/patient-${item.portrait}.webp`} alt="" width="64" height="64" /><span><strong>{item.name}</strong><small>{item.age} tahun</small></span></div></td><td>{item.reference}</td><td>{item.records.length} pemeriksaan</td><td><button class="patient-button secondary" type="button" aria-label={`Buka pasien ${item.name}`} onclick={() => openPatient(item.id)}>Buka pasien</button></td></tr>{:else}<tr><td colspan="4" class="empty"><h3>Pasien tidak ditemukan.</h3><p>Coba nama atau nomor pasien lain.</p><button class="text-button" type="button" onclick={() => search = ''}>Tampilkan semua pasien</button></td></tr>{/each}</tbody></table></div>
     </section>
     <p class="patient-note">Seluruh profil, dokumen, dan catatan pada halaman ini merupakan data contoh.</p>
   </main>
@@ -129,7 +129,7 @@
   <div class="doctor-workspace">
     <section class="patient-summary" aria-label="Pasien yang sedang dibuka">
       <button class="text-button" type="button" disabled={editing} onclick={() => selectedId = null}>Semua pasien</button>
-      <div class="summary-row"><div class="summary-name"><span class="avatar large" aria-hidden="true">{patient.name.split(' ').map(part => part[0]).join('')}</span><div><p class="eyebrow">{patient.reference} · Data contoh</p><h1 tabindex="-1">{patient.name}</h1></div></div><dl><div><dt>Usia</dt><dd>{patient.age} tahun</dd></div><div><dt>Berat badan</dt><dd>{patient.weight} kg</dd></div><div><dt>Tinggi badan</dt><dd>{patient.height} cm</dd></div></dl></div>
+      <div class="summary-row"><div class="summary-name"><img class="avatar large" src={`/images/patient-${patient.portrait}.webp`} alt="" width="88" height="88" /><div><p class="eyebrow">{patient.reference} · Data contoh</p><h1 tabindex="-1">{patient.name}</h1></div></div><dl><div><dt>Usia</dt><dd>{patient.age} tahun</dd></div><div><dt>Berat badan</dt><dd>{patient.weight} kg</dd></div><div><dt>Tinggi badan</dt><dd>{patient.height} cm</dd></div></dl></div>
     </section>
     <nav class="doctor-tabs" aria-label="Data pasien">{#each [{ id: 'records' as const, label: 'Rekam medis' }, { id: 'documents' as const, label: 'Dokumen pasien' }] as item}<button type="button" disabled={editing} aria-current={tab === item.id ? 'page' : undefined} class:active={tab === item.id} onclick={() => { tab = item.id; notice = ''; fileError = '' }}>{item.label}</button>{/each}</nav>
     {#if editing}
@@ -183,8 +183,8 @@
   .patient-name, .summary-name { display: flex; align-items: center; gap: 16px; }
   .patient-name strong { display: block; font-size: 14px; font-weight: 550; }
   small { display: block; margin-top: 5px; font-size: 11px; line-height: 1.7; }
-  .avatar { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border: 1px solid #d6e5f7; border-radius: 14px; background: #edf5ff; color: #0069d4; font-size: 12px; }
-  .avatar.large { width: 60px; height: 60px; border-radius: 20px; font-size: 18px; }
+  .avatar { display: block; flex-shrink: 0; width: 64px; height: 64px; object-fit: contain; filter: grayscale(1); }
+  .avatar.large { width: 88px; height: 88px; }
   .empty, td.empty { padding: 48px 24px; text-align: center; white-space: normal; }
   .empty h3 { font-size: 17px; font-weight: 550; }
   .empty p { font-size: 12px; }
