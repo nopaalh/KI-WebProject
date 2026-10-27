@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"slices"
 	"strconv"
 	"testing"
 )
@@ -194,6 +195,26 @@ func TestDESFeistelFunction(t *testing.T) {
 
 	if want := bitsFromString("0010 0011 0100 1010 1010 1001 1011 1011"); !bytes.Equal(got, want) {
 		t.Fatalf("F(R0, K1) = %v, want %v", got, want)
+	}
+}
+
+func TestDESCrypt(t *testing.T) {
+	for _, vector := range []struct{ key, plain, cipher string }{
+		{"133457799BBCDFF1", "0123456789ABCDEF", "85E813540F0AB405"},
+		{"0E329232EA6D0D73", "8787878787878787", "0000000000000000"},
+	} {
+		subkeys := DESSubKeyMaker(bitsFromHex(vector.key))
+
+		if got := DESCrypt(bitsFromHex(vector.plain), subkeys); !bytes.Equal(got, bitsFromHex(vector.cipher)) {
+			t.Fatalf("encrypt %s: got %v, want %s", vector.plain, got, vector.cipher)
+		}
+
+		// Subkey dibalik pada salinan array, jadi subkeys asli tidak berubah.
+		reversed := subkeys
+		slices.Reverse(reversed[:])
+		if got := DESCrypt(bitsFromHex(vector.cipher), reversed); !bytes.Equal(got, bitsFromHex(vector.plain)) {
+			t.Fatalf("decrypt %s: got %v, want %s", vector.cipher, got, vector.plain)
+		}
 	}
 }
 

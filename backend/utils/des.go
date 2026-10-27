@@ -244,3 +244,14 @@ func DESFeistelFunction(r, subkey []byte) []byte {
 	mixed := DESXor(expanded, subkey)
 	return DESPermutation(DESSBoxSubstitution(mixed), desP[:])
 }
+
+// DESCrypt memproses satu blok 64 bit, desIP, split, 16 ronde, gabung R16||L16, lalu desFP.
+// Setiap ronde -> L baru = R lama, R baru = L lama XOR F(R lama, subkey ronde itu).
+// Untuk dekripsi, kirim subkeys dalam urutan terbalik.
+func DESCrypt(block []byte, subkeys [16][]byte) []byte {
+	l, r := DESSplit(DESPermutation(block, desIP[:]))
+	for round := 0; round < 16; round++ {
+		l, r = r, DESXor(l, DESFeistelFunction(r, subkeys[round]))
+	}
+	return DESPermutation(DESMerge(r, l), desFP[:])
+}
