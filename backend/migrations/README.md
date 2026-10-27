@@ -14,8 +14,9 @@ Migration bersifat **incremental untuk database yang sudah memiliki tabel `users
 | `000004_create_patient_ktps` | Tabel `patient_ktps` (16 field × AES/DES/RC4) dengan FK ke `patient_profiles` | 000003 |
 | `000005_add_des_rc4_processing_times` | Empat kolom timing DES/RC4 di `files` (`des_`/`rc4_` × `encrypt`/`decrypt` `_time_ns`, `BIGINT NOT NULL DEFAULT 0`) | Tabel `files` |
 | `000006_add_file_cipher_set_version` | Kolom `files.cipher_set_version` (`BIGINT NOT NULL DEFAULT 0`): 0 untuk upload lama yang hanya AES, 1 untuk upload dengan tiga cipher | Tabel `files` |
+| `000007_add_file_patient_profile_id` | Kolom `files.patient_profile_id` (`BIGINT` nullable), index, dan FK `fk_patient_profiles_attachments` ke `patient_profiles(id)` (RESTRICT): pasien subjek lampiran, terpisah dari pengunggah | 000003, tabel `files` |
 
-Definisi 000002-000006 dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model di `backend/models/` (hasil `pg_dump` identik, dan `AutoMigrate` tidak mengubah apa pun sesudahnya). Bila model berubah, migration baru harus ditambahkan. Baris `files` lama menjadi `cipher_set_version = 0` (hanya AES) dan tidak di-backfill: 000006 tidak membuktikan baris itu punya salinan DES/RC4.
+Definisi 000002-000007 dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model di `backend/models/` (hasil `pg_dump` identik, dan `AutoMigrate` tidak mengubah apa pun sesudahnya). Bila model berubah, migration baru harus ditambahkan. Baris `files` lama menjadi `cipher_set_version = 0` (hanya AES) dan tidak di-backfill: 000006 tidak membuktikan baris itu punya salinan DES/RC4.
 
 Migration 000001 menambahkan:
 
@@ -85,7 +86,7 @@ Catat migration yang diterapkan, database target, waktu, dan commit Git terkait 
 
 ## Rollback
 
-Rollback dijalankan **terbalik** (000006 dulu, lalu 000005 dan seterusnya): `down` 000003 gagal bila `patient_ktps` masih ada, dan `down` 000002 menghapus index yang dibutuhkan FK `patient_profiles`. `down` 000002-000006 menghapus kolom/tabel beserta seluruh isinya (role, profil pasien, KTP terenkripsi, timing DES/RC4, versi cipher); backup dulu. Setelah `down` 000006 jangan menyalakan aplikasi: `AutoMigrate` membuat ulang kolom itu bernilai 0 dan baris tiga cipher akan ditolak sebagai tidak konsisten.
+Rollback dijalankan **terbalik** (000007 dulu, lalu 000006 dan seterusnya): `down` 000003 gagal bila `patient_ktps` masih ada, dan `down` 000002 menghapus index yang dibutuhkan FK `patient_profiles`. `down` 000002-000007 menghapus kolom/tabel beserta seluruh isinya (role, profil pasien, KTP terenkripsi, timing DES/RC4, versi cipher); backup dulu. Setelah `down` 000006 jangan menyalakan aplikasi: `AutoMigrate` membuat ulang kolom itu bernilai 0 dan baris tiga cipher akan ditolak sebagai tidak konsisten.
 
 **Destruktif (000001):** rollback menghapus kedua kolom beserta seluruh nilai timing di dalamnya, termasuk bila kolom itu awalnya dibuat oleh `AutoMigrate` sebelum SQL up dijalankan. Ia tidak dapat menentukan siapa yang pertama kali menambahkan kolom tersebut. Backup nilai yang diperlukan terlebih dahulu.
 
