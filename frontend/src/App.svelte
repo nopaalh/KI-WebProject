@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
   import Dashboard from './Dashboard.svelte'
+  import PatientPortal from './PatientPortal.svelte'
 
   type Role = 'patient' | 'doctor'
   type CurrentUser = { id: number; name: string; username: string; role: Role }
@@ -164,6 +165,7 @@
 </svelte:head>
 
 <div class="app-shell">
+  {#if currentUser?.role !== 'patient'}
   <header class="topbar">
     <button class="wordmark" type="button" onclick={() => { if (!currentUser) reset() }} disabled={pending} aria-label={currentUser ? 'Portal Pasien' : 'Portal Pasien, kembali ke pilihan peran'}>
       <img src="/images/portal-mark.svg" alt="" width="34" height="34" />
@@ -172,7 +174,7 @@
     <nav class="account-nav" aria-label="Navigasi akun">
       {#if currentUser}
         <span class="account-hint">{currentUser.name}</span>
-        <span class="account-role">{currentUser.role === 'patient' ? 'Pasien' : 'Dokter'}</span>
+        <span class="account-role">Dokter</span>
         <button class="back" type="button" onclick={reset} disabled={pending}>Ganti akun</button>
       {:else}
         {#if phase !== 'choose'}
@@ -183,10 +185,15 @@
       {/if}
     </nav>
   </header>
+  {/if}
 
   {#if currentUser}
     {#key currentUser.id}
-      <Dashboard user={currentUser} />
+      {#if currentUser.role === 'patient'}
+        <PatientPortal user={currentUser} onSwitchAccount={reset} />
+      {:else}
+        <Dashboard user={currentUser} />
+      {/if}
     {/key}
   {:else}
     <main class:choosing={phase === 'choose'} class:opened={phase !== 'choose'}>

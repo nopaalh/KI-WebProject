@@ -3,7 +3,7 @@
   import DocumentPreview from './DocumentPreview.svelte'
   import { exampleDocuments, type DocumentCategory, type PatientDocument } from './patientExamples'
 
-  let { user, files = exampleDocuments }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; files?: PatientDocument[] } = $props()
+  let { user, files = exampleDocuments, onOpenProfile }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; files?: PatientDocument[]; onOpenProfile?: () => void } = $props()
 
   const illustratedKinds = ['PDF', 'DOCX', 'PNG', 'MP4']
   const categories: DocumentCategory[] = ['Semua', 'Dokumen', 'Foto', 'Video']
@@ -80,6 +80,7 @@
         <p class="profile-name">{user.name}</p>
         <p class="profile-username">@{user.username}</p>
         <div class="profile-footer"><span>Jenis akun</span><span class="profile-role">{user.role === 'patient' ? 'Pasien' : 'Dokter'}</span></div>
+        {#if onOpenProfile}<button class="profile-link" type="button" onclick={onOpenProfile}>Lihat profil pasien</button>{/if}
       </section>
 
       <section class="panel upload-panel" aria-labelledby="upload-title">
@@ -181,6 +182,8 @@
   .profile-name { margin: 28px 0 8px; font-size: 25px; font-weight: 550; letter-spacing: -.8px; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance; }
   .profile-username { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
   .profile-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 24px; margin-top: 28px; border-top: 1px solid #e1e6ec; font-size: 11px; }
+  .profile-link { padding: 6px 0; margin-top: 18px; border: 0; background: none; color: #0071e3; font-size: 12px; }
+  .profile-link:hover { text-decoration: underline; text-underline-offset: 3px; }
   .profile-role { padding: 5px 11px; border-radius: 7px; background: #f2f6fc; color: #0069d4; font-size: 11px; font-weight: 500; }
   .upload-panel { padding: 12px 22px 26px; text-align: center; }
   .upload-art { display: block; width: 180px; max-width: 100%; height: auto; margin: 2px auto 0; }
