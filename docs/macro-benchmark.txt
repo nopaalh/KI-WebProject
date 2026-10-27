@@ -1,64 +1,119 @@
-PENGUKURAN MAKRO LEWAT HTTP - UPLOAD, UNDUH, DAN BACA KTP
-=========================================================
+PENGUKURAN MAKRO LEWAT HTTP - UPLOAD, UNDUH PER CIPHER, DAN BACA KTP
+====================================================================
 
-Skrip: scripts/macro_benchmark.py (python scripts/macro_benchmark.py <port> 30). Backend `main` 57d06b2 dibuild lalu
-dijalankan terhadap PostgreSQL 16 lokal di Docker (BUKAN database bersama), klien dan server di mesin yang sama
-(loopback), satu koneksi per request, tanpa beban lain, Windows, mode debug Gin, Ryzen 5 5600H, 2026-10-27.
-Waktu = waktu dinding yang dilihat klien dalam milidetik, mencakup HTTP, JWT, query database, baca/tulis disk, dan
-kriptografi. Setiap unduhan dan pembacaan foto dibandingkan dengan SHA-256 aslinya: tidak ada satu pun yang berbeda.
+Skrip: scripts/macro_benchmark.py (python scripts/macro_benchmark.py <port> 30). Backend dari branch
+feat/distinct-cipher-download dibuild lalu dijalankan terhadap PostgreSQL 16 lokal di Docker (BUKAN database
+bersama); klien dan server satu mesin (loopback), satu koneksi per request, tanpa beban lain, Windows, mode debug
+Gin, Ryzen 5 5600H, 2026-10-27. Waktu = waktu dinding yang dilihat klien dalam milidetik, mencakup HTTP, JWT, query
+database, baca/tulis disk, dan kriptografi. "srv" adalah header X-Decryption-Time-Ns, yaitu waktu fungsi dekripsi
+cipher yang dipilih saja. Setiap unduhan dan pembacaan foto dibandingkan dengan SHA-256 aslinya: tidak ada satu pun
+yang berbeda. 30 pengulangan per sel (10 untuk 4 MiB), median / min / maks.
 
-Yang diukur HANYA yang ada di endpoint sekarang: file umum hanya AES1 dan tidak ada pilihan cipher saat dekripsi,
-sedangkan baca KTP selalu mendekripsi ketiga cipher. Unduh per cipher (DES/RC4) lewat endpoint belum bisa diukur.
+Perubahan yang diukur: POST /api/files/:id/decrypt?algorithm=aes|des|rc4 hanya membaca dan mendekripsi ciphertext
+cipher yang dipilih (HMAC dan ukuran plaintext diperiksa), sehingga waktu satu request mencerminkan satu cipher.
+Versi sebelumnya mendekripsi ketiganya pada setiap request; datanya ada di bagian PEMBANDING di bawah.
 
-HASIL (30 pengulangan; 10 untuk 4 MiB)
---------------------------------------
-FILE UPLOAD AND DECRYPT (POST /api/files, POST /api/files/:id/decrypt; AES1 only today)
-input               bytes |  upload ms                     | srv enc ms srv dec ms | download ms        min        max | MB/s
-random-16KiB        16384 |       35.0      33.9      44.1 |        9.1       19.1 |       34.4       23.7       42.5 | 0.45
-random-256KiB      262144 |      417.2     408.9     420.4 |      120.4      280.6 |      305.7      285.7      358.2 | 0.82
-random-1MiB       1048576 |     1738.4    1639.2    1762.4 |      498.3     1131.7 |     1143.7     1120.1     1239.7 | 0.87
-text-1MiB         1048576 |     1611.2    1597.8    1673.5 |      483.6     1105.1 |     1136.7     1113.3     1208.3 | 0.88
-random-4MiB       4194304 |     6469.4    6394.8    6493.4 |     1993.5     4471.9 |     4505.4     4394.5     4704.4 | 0.89
-(upload columns: median/min/max of 3 uploads; download: 30 repeats, 10 for 4 MiB; bytes verified by SHA-256 on every download)
+HASIL SESUDAH PERUBAHAN (satu cipher per download)
+--------------------------------------------------
+FILE UPLOAD (POST /api/files): server-reported cipher time in ms, and client wall time (median/min/max of 3 uploads)
+input             bytes |     wall     min     max | aes enc  aes dec | des enc  des dec | rc4 enc  rc4 dec
+random-16KiB      16384 |     78.4    77.8    83.6 |      8.4    19.0 |      8.5    10.3 |      0.0     0.6
+random-256KiB    262144 |    737.6   724.2   743.1 |    130.1   290.7 |    146.8   140.5 |      1.0     1.0
+random-1MiB     1048576 |   2979.6  2873.4  4343.2 |    476.3  1114.9 |    612.9   610.9 |      5.5     3.6
+text-1MiB       1048576 |   3205.5  2981.7  3268.5 |    511.6  1389.1 |    639.9   614.1 |      4.1     3.2
+random-4MiB     4194304 |  11251.3 11228.6 11279.7 |   1961.1  4494.1 |   2407.9  2307.6 |     13.7    13.2
+
+FILE DOWNLOAD (POST /api/files/:id/decrypt?algorithm=...): 30 repeats, 10 for 4 MiB, bytes verified by SHA-256
+wall = client time in ms; srv = X-Decryption-Time-Ns of the selected cipher in ms (median)
+input             bytes algo  |  wall med      min      max |   srv med | MB/s wall
+random-16KiB      16384 aes   |       34.4       23.9       37.9 |      19.0 | 0.45
+random-16KiB      16384 des   |       16.9       14.5       28.0 |       9.1 | 0.92
+random-16KiB      16384 rc4   |        6.4        4.6       16.3 |       0.0 | 2.43
+random-256KiB    262144 aes   |      296.9      283.9      325.3 |     282.6 | 0.84
+random-256KiB    262144 des   |      154.2      145.2      211.4 |     141.9 | 1.62
+random-256KiB    262144 rc4   |        7.4        5.5       17.5 |       1.0 | 33.89
+random-1MiB     1048576 aes   |     1144.6     1121.5     1190.8 |    1127.6 | 0.87
+random-1MiB     1048576 des   |      622.6      581.5      729.4 |     609.9 | 1.61
+random-1MiB     1048576 rc4   |       20.3       10.4       31.6 |       3.2 | 49.16
+text-1MiB       1048576 aes   |     1179.5     1142.0     1382.5 |    1162.4 | 0.85
+text-1MiB       1048576 des   |      597.7      571.3      795.1 |     580.6 | 1.67
+text-1MiB       1048576 rc4   |       15.9        9.0       63.0 |       3.2 | 62.85
+random-4MiB     4194304 aes   |     4669.4     4612.1     5092.1 |    4655.4 | 0.86
+random-4MiB     4194304 des   |     2513.9     2395.2     2632.4 |    2496.6 | 1.59
+random-4MiB     4194304 rc4   |       37.4       22.4       44.6 |      13.7 | 106.98
 
 KTP (POST then GET /api/patients/me/ktp[/photo]; every read decrypts AES, DES and RC4 and compares them)
 photo               bytes |  create ms | GET ktp ms        min        max | GET photo ms        min        max | MB/s
-png-255KiB         261175 |      773.6 |       28.5       23.1       35.3 |        452.7      436.3      559.2 | 0.55
-png-1022KiB       1047497 |     2980.4 |       34.0       24.0       35.1 |       1726.9     1701.8     1796.8 | 0.58
-png-4094KiB       4192785 |    11190.0 |       34.1       23.4       36.0 |       6972.2     6768.7     7058.9 | 0.57
+png-255KiB         261175 |      775.1 |       31.6       21.6       34.6 |        466.1      438.6      531.7 | 0.53
+png-1022KiB       1047497 |     3295.6 |       32.6       21.5       39.6 |       1814.4     1724.7     2055.4 | 0.55
+png-4094KiB       4192785 |    11508.4 |       28.8       22.1       34.6 |       7145.3     6854.1     7554.5 | 0.56
 (photo bytes verified by SHA-256 on every read)
 
-first upload response keys: ['aes_decrypt_time_ns', 'aes_encrypt_time_ns', 'algorithm', 'id', 'original_name', 'original_size', 'original_type']
+PEMBANDING: SEBELUM PERUBAHAN (setiap download mendekripsi ketiga cipher dan membandingkannya)
+--------------------------------------------------------------------------------------------
+FILE DOWNLOAD (POST /api/files/:id/decrypt?algorithm=...): 30 repeats, 10 for 4 MiB, bytes verified by SHA-256
+wall = client time in ms; srv = X-Decryption-Time-Ns of the selected cipher in ms (median)
+input             bytes algo  |  wall med      min      max |   srv med | MB/s wall
+random-16KiB      16384 aes   |       43.2       32.8       46.1 |      18.6 | 0.36
+random-16KiB      16384 des   |       34.4       33.0       45.3 |       8.6 | 0.45
+random-16KiB      16384 rc4   |       42.9       33.1       95.9 |       0.0 | 0.36
+random-256KiB    262144 aes   |      443.5      423.6      483.5 |     282.3 | 0.56
+random-256KiB    262144 des   |      437.8      421.5      466.4 |     140.7 | 0.57
+random-256KiB    262144 rc4   |      435.4      418.9      524.6 |       1.0 | 0.57
+random-1MiB     1048576 aes   |     1682.5     1660.1     1959.2 |    1103.0 | 0.59
+random-1MiB     1048576 des   |     1730.5     1656.1     1942.1 |     573.8 | 0.58
+random-1MiB     1048576 rc4   |     1794.2     1692.7     1942.1 |       3.5 | 0.56
+text-1MiB       1048576 aes   |     1736.9     1665.6     1890.1 |    1120.3 | 0.58
+text-1MiB       1048576 des   |     1748.4     1671.6     1888.8 |     593.7 | 0.57
+text-1MiB       1048576 rc4   |     1730.0     1670.8     1860.2 |       3.5 | 0.58
+random-4MiB     4194304 aes   |     6913.2     6722.6     9154.6 |    4526.6 | 0.58
+random-4MiB     4194304 des   |     6754.5     6691.7     6813.7 |    2271.8 | 0.59
+random-4MiB     4194304 rc4   |     6752.9     6702.7     6930.4 |      13.7 | 0.59
 
 TEMUAN
 ------
-1. HTTP hampir tidak menambah biaya. Unduh 1 MiB acak: 1144 ms di klien vs 1132 ms dilaporkan server (dekripsi AES1) vs
-   1162 ms di harness kriptografi murni (ciphertext-analysis.txt). Selisih sekitar 12 ms (sekitar 1%); pada 16 KiB sisa
-   biaya tetap sekitar 15 ms. Jadi kecepatan ditentukan cipher, bukan jaringan, JWT, atau database.
-2. Upload AES1 sekitar 1,6-1,7 detik per MiB, hampir persis enkripsi + dekripsi verifikasi (1 MiB: 498 + 1132 = 1630 ms
-   dari 1738 ms; 4 MiB: 1994 + 4472 = 6466 ms dari 6469 ms). Verifikasi round-trip saat upload menyumbang dua pertiga
-   waktu karena dekripsi AES buatan tangan 2,3x lebih lambat dari enkripsinya.
-3. Upload KTP (tiga cipher, round-trip ketiganya) sekitar 2,8-3,0 detik per MiB foto: 773 ms (255 KiB), 2980 ms
-   (1022 KiB), 11190 ms (4094 KiB). Itu cocok dengan penjumlahan cipher (enkripsi AES 0,50 + DES 0,64 + RC4 0,004 dan
-   verifikasi 1,16 + 0,63 + 0,004 = 2,94 detik per MiB). Dengan batas 8 MiB, satu upload tiga cipher kira-kira 22-24 detik.
-4. Baca foto KTP sekitar 1,7 detik per MiB (0,57 MB/s), jauh lebih lambat dari unduh file AES (0,87 MB/s), karena setiap
-   pembacaan mendekripsi AES, DES, dan RC4 lalu membandingkan hasilnya. Biayanya mengikuti jumlah cipher yang dibaca,
-   bukan satu cipher. Baca teks KTP (15 field x 3 cipher) hanya sekitar 28-34 ms dan tidak bergantung ukuran foto.
-5. Isi data tidak memengaruhi waktu: 1 MiB acak 1144 ms vs teks 1137 ms. Waktu naik linear: 0,45 MB/s pada 16 KiB
-   (biaya tetap), lalu 0,82 / 0,87 / 0,89 MB/s pada 256 KiB / 1 MiB / 4 MiB.
-6. Variasi kecil: unduh 1 MiB berkisar 1120-1240 ms (maks 8% di atas median).
-7. Alur KTP dan profil berjalan benar di PostgreSQL nyata (create, GET teks, GET foto, SHA-256 foto cocok). Dokumen
-   PATIENT_KTP.md sebelumnya mencatat PostgreSQL nyata belum diuji.
+1. Setelah perubahan, perbandingan antar cipher terlihat di endpoint. Unduh 1 MiB (data acak): AES 1145 ms, DES 623 ms,
+   RC4 20 ms. AES sekitar 1,8x lebih lama dari DES dan sekitar 56x dari RC4. Pada 4 MiB: 4669, 2514, dan 37 ms. Sebelum
+   perubahan ketiganya sama, sekitar 1,7-1,8 detik per MiB (1683, 1731, 1794 ms), padahal waktu kriptografi per cipher
+   tetap berbeda (1103, 574, 3,5 ms): waktu dinding hanya mengikuti jumlah cipher yang didekripsi.
+2. Biaya tetap HTTP, JWT, query, dan baca disk sekitar 13-17 ms per request (wall dikurangi srv pada 1 MiB: AES 17,
+   DES 13, RC4 17 ms). Untuk cipher lambat itu di bawah 2%, tetapi untuk RC4 itu mayoritas waktu: pada 1 MiB RC4 hanya
+   3 ms kriptografi dari 20 ms total, jadi di endpoint selisihnya menyusut (56x dibanding 352x pada kriptografi murni).
+3. Laju dinding: AES 0,87 MB/s, DES 1,6 MB/s, RC4 49 MB/s (1 MiB) sampai 107 MB/s (4 MiB). Naik hampir linear terhadap
+   ukuran; pada 16 KiB laju turun karena biaya tetap (AES 0,45; DES 0,92; RC4 2,4 MB/s).
+4. Isi data tidak berpengaruh: teks 1 MiB vs acak 1 MiB berbeda dalam derau (AES 1180 vs 1145 ms, DES 598 vs 623 ms,
+   RC4 16 vs 20 ms; arahnya tidak konsisten).
+5. Upload tiga cipher (round-trip ketiganya dari disk) sekitar 2,8-3,0 detik per MiB: 78 ms (16 KiB), 738 ms (256 KiB),
+   2980 ms (1 MiB), 11251 ms (4 MiB). Itu mendekati jumlah waktu cipher: 4 MiB = AES 1961+4494, DES 2408+2308,
+   RC4 14+13 = 11198 ms dari 11251 ms. Enkripsi AES 476 ms, DES 613 ms, RC4 5,5 ms per MiB; verifikasi dekripsi
+   AES 1115 ms, DES 611 ms, RC4 3,6 ms. Dengan batas 8 MiB satu upload kira-kira 22-24 detik; angka ini bahan untuk
+   keputusan target waktu dan batas video.
+6. Upload KTP memakai tiga cipher juga: 775 ms (255 KiB), 3296 ms (1022 KiB), 11508 ms (4094 KiB). Baca foto KTP tetap
+   mendekripsi ketiga cipher dan membandingkannya (466, 1814, 7145 ms; sekitar 1,8 detik per MiB, 0,55 MB/s). Baca
+   teks KTP (15 field x 3 cipher) hanya sekitar 29-33 ms dan tidak bergantung ukuran foto.
+7. Variasi: unduh 1 MiB berkisar 1122-1191 ms untuk AES (maks 4% di atas median). Ada pencilan pada upload (maks 4343 ms
+   untuk 1 MiB acak dan 1389 ms pada dekripsi verifikasi AES teks 1 MiB, tercatat dari satu upload); median dipakai
+   agar pencilan tidak memengaruhi angka utama.
+8. Alur profil, KTP, dan file berjalan benar di PostgreSQL nyata (create, GET teks, GET foto, upload, unduh per cipher,
+   SHA-256 cocok).
 
-PERKIRAAN, BUKAN HASIL UKUR (per cipher, satu MiB)
---------------------------------------------------
-Jika endpoint kelak membaca satu cipher saja, dari ciphertext-analysis.txt dekripsi 1 MiB sekitar AES1 1,16 s, DES1 0,63 s,
-RC41 0,0035 s ditambah sekitar 12 ms biaya tetap HTTP di atas. Angka itu harus diukur ulang dengan skrip ini setelah
-`?algorithm=` ada.
+PERBANDINGAN KONTEKSTUAL
+------------------------
+Tabel endpoint di atas membandingkan AES1 (CBC), DES1 (CTR), dan RC41 (aliran), jadi selisihnya mencampur cipher dan mode.
+Perbandingan yang lebih adil memakai pasangan dari benchmark mikro (benchmark.txt, 1 MiB, buatan tangan):
+- AES-CTR vs DES-CTR (cipher blok, mode sama): 417 ms vs 578 ms, AES sekitar 1,4x lebih cepat.
+- AES-CTR vs RC4 (keystream dari cipher blok vs cipher aliran): 417 ms vs 2,9 ms, RC4 sekitar 146x lebih cepat.
+- AES-CBC vs AES-CTR (efek mode): 460 ms vs 417 ms, sekitar 10%; pada DES di bawah 2%.
+Karena itu DES1 yang tampak lebih cepat dari AES1 saat dekripsi (0,61 s vs 1,13 s per MiB) bukan sifat cipher. Dekripsi
+CBC memerlukan arah balik AES (InvMixColumns) yang jauh lebih lambat pada implementasi buatan tangan (dekripsi AES1 2,3x
+enkripsinya), sedangkan CTR memakai arah enkripsi yang sama untuk keduanya. Pada mode yang sama AES lebih cepat dari DES.
+Dekripsi CBC murni tidak diukur terpisah; penjelasan itu bersandar pada struktur aes.go dan selisih enkripsi/dekripsi AES1.
 
 KETERBATASAN
 ------------
 - Klien dan server satu mesin (loopback); bukan latensi jaringan nyata. Satu pengguna, tanpa konkurensi.
 - Satu koneksi baru per request, mode debug Gin, satu mesin Windows; angka mutlak tidak berlaku untuk server lain.
 - Semua cipher buatan tangan edukasi. Dengan crypto/aes dan crypto/des stdlib angka dan urutannya berbeda jauh.
-- Hanya AES untuk file umum; DES dan RC4 lewat endpoint menunggu permintaan 1 dan 2 di BACKEND_HANDOFF.md bagian 12.
+- Karena download tidak lagi membandingkan ketiga cipher, kerusakan pada salinan yang tidak dipilih baru ketahuan saat
+  salinan itu dipilih, dan envelope sah milik file lain yang ukurannya sama tidak terdeteksi. Itu keputusan desain:
+  keamanan penyimpanan di database/disk di luar fokus penilaian, yang menitikberatkan enkripsi data dan penyimpanannya.
