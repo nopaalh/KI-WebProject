@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"fmt"
 	"project1/models"
 
 	"gorm.io/gorm"
@@ -34,10 +35,22 @@ func (r *FileRepository) FindByIDAndUserID(fileID, userID uint) (*models.File, e
 	return &file, nil
 }
 
-func (r *FileRepository) UpdateAESDecryptTime(fileID, userID uint, durationNS int64) error {
+func (r *FileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
+	var column string
+	switch algorithm {
+	case "aes":
+		column = "aes_decrypt_time_ns"
+	case "des":
+		column = "des_decrypt_time_ns"
+	case "rc4":
+		column = "rc4_decrypt_time_ns"
+	default:
+		return fmt.Errorf("unsupported algorithm: %q", algorithm)
+	}
+
 	result := r.DB.Model(&models.File{}).
 		Where("id = ? AND user_id = ?", fileID, userID).
-		Update("aes_decrypt_time_ns", durationNS)
+		Update(column, durationNS)
 	if result.Error != nil {
 		return result.Error
 	}
