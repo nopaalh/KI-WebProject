@@ -1,0 +1,8 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #111;
+  background: #fafbf9;
+}
+
+body { margin: 0; }
+main { padding: 32px; }
