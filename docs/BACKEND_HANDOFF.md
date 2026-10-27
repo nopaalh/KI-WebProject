@@ -23,6 +23,19 @@ Status diperbarui terhadap `main` pada `57d06b2` (2026-10-27) berdasarkan kode d
 
 | Bagian | Status |
 | --- | --- |
+| Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada dalam baseline |
+| Model `User` dan `File` | Sudah ada dalam baseline |
+| Upload, daftar/metadata file sendiri, dekripsi file AES | Sudah ada; query dibatasi `user_id` |
+| AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
+| Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
+| Batas upload | Saat ini 8 MiB; bukan 25 MiB |
+| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download memeriksa seluruh set, selector algorithm memilih timing yang dilaporkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
+| Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
+| Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
+| Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |
+| Perlindungan seluruh data sensitif dengan tiga cipher | Belum terpenuhi; nama user dan metadata file masih berupa field biasa |
+
+Perubahan lokal role menyediakan fondasi identitas saja, **belum RBAC rumah sakit lengkap**. Endpoint file tetap owner-only. Kolom role didefinisikan langsung pada model `User` untuk dibuat/ditambahkan lewat `AutoMigrate` yang sudah ada; tidak memakai file SQL role terpisah. AutoMigrate belum dijalankan ke database dalam sesi ini. Detail perubahan lokal ada di [ROLES.md](ROLES.md).
 | Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada |
 | Role `patient`/`doctor` (kolom `role` pada `User`) dan `GET /api/users/me` | Sudah di `main` (PR #3 dan #4); belum ada endpoint yang melayani petugas |
 | Upload, daftar/metadata, dekripsi file umum (dokumen, video) | Ada, **hanya AES** (`AES1`), batas 8 MiB; belum DES/RC4; nama file masih plaintext |

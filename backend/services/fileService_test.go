@@ -61,7 +61,7 @@ func (r *memoryFileRepository) FindByIDAndUserID(fileID, userID uint) (*models.F
 	return &file, nil
 }
 
-func (r *memoryFileRepository) UpdateAESDecryptTime(fileID, userID uint, durationNS int64) error {
+func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}
@@ -69,7 +69,8 @@ func (r *memoryFileRepository) UpdateAESDecryptTime(fileID, userID uint, duratio
 	if !ok || file.UserID != userID {
 		return gorm.ErrRecordNotFound
 	}
-	file.AESDecryptTimeNS = durationNS
+	_, _, decryptTime := fileCipherFields(&file, algorithm)
+	*decryptTime = durationNS
 	r.files[fileID] = file
 	r.updates++
 	return nil
@@ -151,7 +152,7 @@ func TestFileServicePersistsCiphertextMetadataAndTimings(t *testing.T) {
 		t.Fatalf("disk ciphertext round trip failed: %v", err)
 	}
 
-	result, plaintext, err := service.Decrypt(7, file.ID)
+	result, plaintext, err := service.Decrypt(7, file.ID, "aes")
 	if err != nil || !bytes.Equal(plaintext, original) {
 		t.Fatalf("download decryption failed: %v", err)
 	}
@@ -162,8 +163,8 @@ func TestFileServicePersistsCiphertextMetadataAndTimings(t *testing.T) {
 		t.Fatal("download overwrote encryption timing")
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("expected only encrypted file on disk, got %d entries: %v", len(entries), err)
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("expected three encrypted files on disk, got %d entries: %v", len(entries), err)
 	}
 }
 
@@ -180,13 +181,13 @@ func TestFileServiceEmptyAndDuplicateNames(t *testing.T) {
 	if first.AESPath == second.AESPath || first.OriginalName != "same.bin" || second.OriginalName != "same.bin" {
 		t.Fatal("filename sanitization or unique storage names failed")
 	}
-	_, plaintext, err := service.Decrypt(1, first.ID)
+	_, plaintext, err := service.Decrypt(1, first.ID, "aes")
 	if err != nil || len(plaintext) != 0 {
 		t.Fatalf("empty file decryption failed: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 2 {
-		t.Fatalf("expected two stored files: %v", err)
+	if err != nil || len(entries) != 6 {
+		t.Fatalf("expected six stored ciphertexts: %v", err)
 	}
 }
 
@@ -237,7 +238,7 @@ func TestFileServiceOwnershipAndRepositoryErrors(t *testing.T) {
 		t.Fatalf("invalid user: %v", err)
 	}
 	for _, userID := range []uint{2, 3} {
-		if _, _, err := service.Decrypt(userID, file.ID); !errors.Is(err, ErrFileNotFound) {
+		if _, _, err := service.Decrypt(userID, file.ID, "aes"); !errors.Is(err, ErrFileNotFound) {
 			t.Fatalf("user %d read another user's file: %v", userID, err)
 		}
 	}
@@ -252,7 +253,7 @@ func TestFileServiceOwnershipAndRepositoryErrors(t *testing.T) {
 	repo.findErr = nil
 	for _, updateError := range []error{databaseError, gorm.ErrRecordNotFound} {
 		repo.updateErr = updateError
-		_, plaintext, err := service.Decrypt(1, file.ID)
+		_, plaintext, err := service.Decrypt(1, file.ID, "aes")
 		if plaintext != nil || err == nil {
 			t.Fatal("returned plaintext despite failure to persist timing")
 		}
@@ -332,7 +333,7 @@ func TestFileServiceRejectsDamagedStoredFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			tt.damage(t, service, repo, file)
-			_, plaintext, err := service.Decrypt(1, file.ID)
+			_, plaintext, err := service.Decrypt(1, file.ID, "aes")
 			if !errors.Is(err, ErrFileIntegrity) || plaintext != nil {
 				t.Fatalf("expected integrity error and no plaintext, got %v", err)
 			}
