@@ -33,6 +33,20 @@ func TestDESSplit(t *testing.T) {
 	}
 }
 
+func TestDESRotateLeft(t *testing.T) {
+	bits := []byte{1, 2, 3, 4}
+	original := bytes.Clone(bits)
+
+	for shift, want := range map[int][]byte{1: {2, 3, 4, 1}, 2: {3, 4, 1, 2}} {
+		if got := DESRotateLeft(bits, shift); !bytes.Equal(got, want) {
+			t.Fatalf("shift %d: got %v, want %v", shift, got, want)
+		}
+	}
+	if !bytes.Equal(bits, original) {
+		t.Fatal("DESRotateLeft mengubah input")
+	}
+}
+
 func TestDESPermutationInitialPermutation(t *testing.T) {
 	input := make([]byte, 64)
 	input[0] = 1 // hanya bit 1 yang menyala
