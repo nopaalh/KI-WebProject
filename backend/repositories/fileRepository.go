@@ -19,23 +19,52 @@ func (r *FileRepository) UploadFile(file *models.File) error {
 	return r.DB.Create(file).Error
 }
 
-func (r *FileRepository) ListByUserID(userID uint) ([]models.File, error) {
+func (r *FileRepository) accessibleQuery(userID uint, role string) (*gorm.DB, error) {
+	if userID == 0 {
+		return nil, fmt.Errorf("invalid user ID")
+	}
+	if role != models.RolePatient && role != models.RoleDoctor {
+		return nil, fmt.Errorf("unsupported role: %q", role)
+	}
+
+	profiles := r.DB.Model(&models.PatientProfile{}).Select("id")
+	if role == models.RolePatient {
+		profiles = profiles.Where("user_id = ?", userID)
+	}
+	return r.DB.Model(&models.File{}).Where(
+		"(files.patient_profile_id IN (?) OR (files.patient_profile_id IS NULL AND files.user_id = ?))",
+		profiles, userID,
+	), nil
+}
+
+func (r *FileRepository) ListAccessible(userID uint, role string, patientProfileID *uint) ([]models.File, error) {
+	query, err := r.accessibleQuery(userID, role)
+	if err != nil {
+		return nil, err
+	}
+	if patientProfileID != nil {
+		query = query.Where("files.patient_profile_id = ?", *patientProfileID)
+	}
 	files := make([]models.File, 0)
-	if err := r.DB.Where("user_id = ?", userID).Order("id DESC").Find(&files).Error; err != nil {
+	if err := query.Order("files.id DESC").Find(&files).Error; err != nil {
 		return nil, err
 	}
 	return files, nil
 }
 
-func (r *FileRepository) FindByIDAndUserID(fileID, userID uint) (*models.File, error) {
+func (r *FileRepository) FindAccessibleByID(fileID, userID uint, role string) (*models.File, error) {
+	query, err := r.accessibleQuery(userID, role)
+	if err != nil {
+		return nil, err
+	}
 	var file models.File
-	if err := r.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
+	if err := query.Where("files.id = ?", fileID).First(&file).Error; err != nil {
 		return nil, err
 	}
 	return &file, nil
 }
 
-func (r *FileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
+func (r *FileRepository) UpdateDecryptTime(fileID, userID uint, role, algorithm string, durationNS int64) error {
 	var column string
 	switch algorithm {
 	case "aes":
@@ -48,9 +77,11 @@ func (r *FileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string
 		return fmt.Errorf("unsupported algorithm: %q", algorithm)
 	}
 
-	result := r.DB.Model(&models.File{}).
-		Where("id = ? AND user_id = ?", fileID, userID).
-		Update(column, durationNS)
+	query, err := r.accessibleQuery(userID, role)
+	if err != nil {
+		return err
+	}
+	result := query.Where("files.id = ?", fileID).Update(column, durationNS)
 	if result.Error != nil {
 		return result.Error
 	}

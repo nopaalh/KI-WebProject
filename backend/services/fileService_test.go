@@ -35,14 +35,14 @@ func (r *memoryFileRepository) UploadFile(file *models.File) error {
 	return nil
 }
 
-func (r *memoryFileRepository) ListByUserID(userID uint) ([]models.File, error) {
+func (r *memoryFileRepository) ListAccessible(userID uint, role string, patientID *uint) ([]models.File, error) {
 	r.listCalls++
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
 	files := make([]models.File, 0)
 	for _, file := range r.files {
-		if file.UserID == userID {
+		if fileTestVisible(file, userID, role, patientID) {
 			files = append(files, file)
 		}
 	}
@@ -50,23 +50,23 @@ func (r *memoryFileRepository) ListByUserID(userID uint) ([]models.File, error) 
 	return files, nil
 }
 
-func (r *memoryFileRepository) FindByIDAndUserID(fileID, userID uint) (*models.File, error) {
+func (r *memoryFileRepository) FindAccessibleByID(fileID, userID uint, role string) (*models.File, error) {
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
 	file, ok := r.files[fileID]
-	if !ok || file.UserID != userID {
+	if !ok || !fileTestVisible(file, userID, role, nil) {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return &file, nil
 }
 
-func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
+func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, role, algorithm string, durationNS int64) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}
 	file, ok := r.files[fileID]
-	if !ok || file.UserID != userID {
+	if !ok || !fileTestVisible(file, userID, role, nil) {
 		return gorm.ErrRecordNotFound
 	}
 	_, _, decryptTime := fileCipherFields(&file, algorithm)
@@ -84,7 +84,7 @@ func newTestFileService(t *testing.T) (*FileService, *memoryFileRepository, stri
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	service, err := NewFileService(repo, dir, key)
+	service, err := NewFileService(repo, &fileTestUsers{roles: make(map[uint]string)}, &fileTestPatients{}, dir, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,14 +383,14 @@ func TestFileServiceListErrors(t *testing.T) {
 
 func TestNewFileServiceRejectsUnavailableStorage(t *testing.T) {
 	var key [utils.AESFileKeySize]byte
-	if _, err := NewFileService(nil, "", key); err == nil {
+	if _, err := NewFileService(nil, nil, nil, "", key); err == nil {
 		t.Fatal("accepted empty storage directory")
 	}
 	file := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(file, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewFileService(nil, file, key); err == nil {
+	if _, err := NewFileService(nil, nil, nil, file, key); err == nil {
 		t.Fatal("accepted file as storage directory")
 	}
 }

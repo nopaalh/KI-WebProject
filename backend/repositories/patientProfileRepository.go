@@ -20,6 +20,14 @@ func NewPatientProfileRepository(db *gorm.DB) *PatientProfileRepository {
 	return &PatientProfileRepository{DB: db}
 }
 
+func (r *PatientProfileRepository) FindByID(id uint) (*models.PatientProfile, error) {
+	var profile models.PatientProfile
+	if err := r.DB.Where("id = ?", id).First(&profile).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
 func (r *PatientProfileRepository) FindByUserID(userID uint) (*models.PatientProfile, error) {
 	var profile models.PatientProfile
 	if err := r.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {

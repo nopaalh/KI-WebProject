@@ -14,7 +14,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Logout browser | Tersedia; `POST /api/users/logout` menghapus cookie HttpOnly, lihat bagian 5.1 |
 | Refresh token dan revokasi JWT server-side | Belum tersedia |
 | Upload, metadata, dan download file tiga cipher | Tersedia; upload baru AES/DES/RC4 all-or-nothing, download `?algorithm=aes|des|rc4`; lihat bagian 11 |
-| Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
+| Lampiran pasien dan akses dokter | Tersedia; file memiliki pasien subjek terpisah dari pengunggah; `GET /api/files` mengikuti role, lihat bagian 12 |
 | Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | Baca data KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp`; lihat [kontrak KTP](#10-ktp-pasien) |
 | Baca foto KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp/photo`; lihat bagian 10.4 |
@@ -22,7 +22,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik juga memakai ketiga cipher untuk upload baru |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
-**FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES/DES/RC4.** Gunakan hanya endpoint yang tercantum; pemilihan cipher file melalui query algorithm pada endpoint dekripsi. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
+**FrontEnd dapat mengintegrasikan register, login, upload file, daftar lampiran sesuai role/pasien subjek, metadata per ID, dan download hasil dekripsi AES/DES/RC4.** Gunakan hanya endpoint yang tercantum; pemilihan cipher file melalui query algorithm pada endpoint dekripsi. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
 
 ## 2. Base URL dan konfigurasi
 
@@ -45,14 +45,17 @@ Semua endpoint yang tersedia:
 | `POST` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membuat data KTP dan upload foto; kontrak di bagian 10.7 |
 | `GET` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membaca data KTP sendiri; kontrak di bagian 10 |
 | `GET` | `/api/patients/me/ktp/photo` | Cookie `access_token`, role `patient` | Mengambil bytes foto KTP sendiri setelah dekripsi; kontrak di bagian 10.4 |
-| `POST` | `/api/files` | Cookie `access_token` | Upload multipart, simpan tiga ciphertext AES/DES/RC4 serta timing |
-| `GET` | `/api/files` | Cookie `access_token` | Seluruh metadata file milik pengguna login, urutan ID DESC, tanpa pagination/filter |
-| `GET` | `/api/files/:id` | Cookie `access_token` | Metadata file milik pengguna |
+| `POST` | `/api/files` | Cookie `access_token`, role patient | Upload untuk profil pasien sendiri; tiga ciphertext AES/DES/RC4 |
+| `GET` | `/api/doctor/patients` | Cookie `access_token`, role doctor | Daftar ringkas pasien yang sudah punya profil |
+| `POST` | `/api/doctor/patients/:patient_profile_id/files` | Cookie `access_token`, role doctor | Unggah laporan/lampiran untuk pasien terkait |
+| `GET` | `/api/doctor/patients/:patient_profile_id/files` | Cookie `access_token`, role doctor | Daftar lampiran yang terhubung ke pasien terkait |
+| `GET` | `/api/files` | Cookie `access_token` | Metadata lampiran sesuai role/subject, ID DESC, tanpa pagination/filter |
+| `GET` | `/api/files/:id` | Cookie `access_token` | Metadata lampiran yang boleh diakses menurut role/subject |
 | `POST` | `/api/files/:id/decrypt` | Cookie `access_token` | Dekripsi/download byte asli; pilih algorithm aes/des/rc4, default aes |
 
 Tidak ada prefix versi seperti `/v1`.
 
-`GET /api/files` mengembalikan `200 OK` dengan `{"files":[...]}` (kosong: `{"files":[]}`) dan `Cache-Control: no-store`. Setiap item memakai DTO metadata yang sama dengan `GET /api/files/:id`: `id`, `original_name`, `original_size`, `original_type`, `algorithm` (default AES), `algorithms`, `cipher_set_version`, serta enam field timing AES/DES/RC4; lihat bagian 11. Urutan **ID DESC** berarti record terbaru diinsert terlebih dahulu. Owner berasal dari `AuthMiddleware` yang sudah ada melalui cookie login; query `user_id` dari klien diabaikan dan tidak memberi akses ke file pengguna lain. Endpoint tidak menerima pagination/filter, tidak membaca disk atau mengukur ulang timing, dan tetap menyertakan record historis metadata-only. Response tidak berisi path disk atau key. Error autentikasi `401` mengikuti middleware yang sama (lihat bagian 5); kegagalan pemrosesan menghasilkan `500` dengan `{"message":"Failed to process file"}`. Contoh fetch dan curl cookie jar ada di [Panduan API File](FILES.md).
+`GET /api/files` mengembalikan `200 OK` dengan `{"files":[...]}` (kosong: `{"files":[]}`) dan `Cache-Control: no-store`. Setiap item memakai DTO metadata yang sama dengan `GET /api/files/:id`: `id`, `original_name`, `original_size`, `original_type`, `algorithm` (default AES), `algorithms`, `cipher_set_version`, serta enam field timing AES/DES/RC4; lihat bagian 11. Urutan **ID DESC** berarti record terbaru diinsert terlebih dahulu. Identitas berasal dari JWT, role terbaru dari database, dan akses mengikuti pasien subjek, bukan sekadar pengunggah (bagian 12). Query `user_id`/`patient_profile_id` tidak mengubah scope akses. Endpoint tidak menerima pagination/filter, tidak membaca disk atau mengukur ulang timing, dan tetap menyertakan record historis metadata-only. Response tidak berisi path disk atau key. Error autentikasi `401` mengikuti middleware yang sama (lihat bagian 5); kegagalan pemrosesan menghasilkan `500` dengan `{"message":"Failed to process file"}`. Contoh fetch dan curl cookie jar ada di [Panduan API File](FILES.md).
 
 ### Header request
 
@@ -251,7 +254,7 @@ Alur yang dapat diterapkan sekarang:
 2. Setelah `201`, tampilkan informasi sukses dan arahkan ke halaman login.
 3. Login melalui `/api/users/login` dengan `credentials: "include"` jika lintas origin.
 4. Setelah `200`, browser menyimpan cookie `HttpOnly`; panggil `GET /api/users/me` dengan cookie untuk membaca `id`, `name`, `username`, dan `role` sebelum memilih tampilan. Jangan membaca `result.token` atau menyimpan JWT di `localStorage`/`sessionStorage`. Role tidak disimpan dalam JWT; `/me` membaca nilai terbaru dari database.
-5. Kirim cookie pada request file dengan `credentials: "include"`; `AuthMiddleware` memvalidasi JWT dan meneruskan ID pengguna. Daftar file, metadata, dan dekripsi hanya mengakses file milik pengguna tersebut.
+5. Kirim cookie pada request file dengan `credentials: "include"`; `AuthMiddleware` memvalidasi JWT dan meneruskan ID pengguna. Service membaca role terbaru dari database; daftar, metadata, dan dekripsi mengikuti akses pasien subjek/dokter serta aturan legacy pada bagian 12, bukan hanya ID pengunggah.
 6. Jika request terproteksi menghasilkan `401`, minta pengguna login lagi; belum ada endpoint refresh.
 
 Middleware membaca **cookie `access_token`**, bukan header `Authorization: Bearer ...`. Cookie hilang menghasilkan `401` dengan `message: "Missing authentication cookie"`; JWT invalid/kedaluwarsa menghasilkan `"Invalid or expired token"`. Claim ID tidak valid dapat menghasilkan `"Unauthorized: user_id missing"`; controller file juga dapat mengembalikan `"Unauthorized"`.
@@ -744,11 +747,11 @@ Semua error memakai JSON `{"message":"..."}`. Tes alur upload/read memakai data 
 
 ## 11. File generik tiga cipher
 
-`POST /api/files` tetap menerima multipart field `file`, maksimal 8 MiB file / 9 MiB body. Upload baru selalu menghasilkan AES, DES, dan RC4 dari input sama. Semua ciphertext harus berhasil ditulis dan lolos verifikasi dekripsi dari disk sebelum metadata diinsert. Kegagalan memicu cleanup seluruh ciphertext operasi; kegagalan cleanup juga menghasilkan error. Tidak ada pemilihan satu algoritma saat upload.
+`POST /api/files` menerima multipart field `file`, maksimal 8 MiB file / 9 MiB body, khusus pasien yang sudah mempunyai profil. Dokter memakai route upload bertarget di bagian 12. Upload baru selalu menghasilkan AES, DES, dan RC4 dari input sama. Semua ciphertext harus berhasil ditulis dan lolos verifikasi dekripsi dari disk sebelum metadata diinsert. Kegagalan memicu cleanup seluruh ciphertext operasi; kegagalan cleanup juga menghasilkan error. Tidak ada pemilihan satu algoritma saat upload.
 
-`GET /api/files` dan `GET /api/files/:id` tetap owner-scoped. DTO metadata sekarang mencakup:
+`GET /api/files` dan `GET /api/files/:id` dibatasi role dan pasien subjek (bagian 12), bukan hanya user pengunggah. DTO metadata sekarang mencakup:
 
-- `id`, `original_name`, `original_size`, `original_type`.
+- `id`, `original_name`, `original_size`, `original_type`, `uploaded_by_user_id` (pengunggah), `patient_profile_id` (pasien subjek; null pada data lama yang belum dipetakan).
 - `algorithm`: label AES default yang dipertahankan untuk kompatibilitas, bukan klaim hanya AES disimpan.
 - `algorithms`: nama cipher dengan path nonkosong pada metadata, misalnya `["aes","des","rc4"]`; metadata tidak memverifikasi keberadaan file live.
 - `cipher_set_version`: `1` untuk upload baru yang mewajibkan tiga cipher; `0` untuk legacy AES-only.
@@ -758,8 +761,95 @@ Download: **`POST /api/files/:id/decrypt?algorithm=aes|des|rc4`**, tanpa body, c
 
 Sukses `200` binary bytes asli, `Content-Type: application/octet-stream`, attachment filename, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Decryption-Algorithm` berisi pilihan cipher, dan `X-Decryption-Time-Ns` untuk cipher pilihan. Kedua header dekripsi diekspos melalui CORS. Hanya timing decrypt cipher pilihan yang diupdate pada database, dan kegagalan update membuat request gagal sebelum body sukses dikirim.
 
-Error: `400` input/algorithm invalid; `401` tidak terautentikasi; `404` file tidak ada/bukan milik user; `409` memilih DES/RC4 untuk legacy AES-only; `413` batas ukuran; `500` kegagalan storage/DB/integritas. Bentuk error tetap `{"message":"..."}`; internal error `Failed to process file`.
+Error: `400` input/algorithm invalid; `401` tidak terautentikasi; `403` role tidak diizinkan; `404` file tidak ada/tidak berwenang atau profil upload belum ada; `409` memilih DES/RC4 untuk legacy AES-only; `413` batas ukuran; `500` kegagalan storage/DB/integritas. Bentuk error tetap `{"message":"..."}`; internal error `Failed to process file`.
 
 **Legacy dan batasan:** versi 0 tetap dapat dibaca dengan AES jika envelope valid; tidak otomatis di-backfill. AutoMigrate menambahkan empat kolom timing dan versi set cipher, tetapi migrasi tidak dijalankan dalam sesi ini. Filesystem dan PostgreSQL bukan satu transaksi crash-atomic; crash/cleanup failure dapat meninggalkan orphan. Metadata nama/tipe/ukuran tetap plaintext, DES/RC4 bukan cipher produksi, dan batas video masih 8 MiB.
 
 Timing hanya mencakup fungsi envelope, bukan I/O/network/DB. Download versi 1 memverifikasi ketiganya sehingga latensi HTTP bukan waktu satu cipher; header melaporkan waktu fungsi dekripsi yang dipilih. Bukan benchmark berulang atau klaim seluruh assignment selesai. Detail konfigurasi, envelope, cleanup, pengukuran, dan contoh klien: [FILES.md](FILES.md).
+
+## 12. Akses dokter dan pasien subjek lampiran
+
+### 12.1. Model dan aturan akses
+
+`files.user_id` tetap menyimpan **user pengunggah**; tidak diubah menjadi pasien pemilik. Kolom baru `files.patient_profile_id` merujuk `patient_profiles.id` sebagai **pasien subjek**. Satu profil dapat mempunyai banyak lampiran, sedangkan satu lampiran baru memiliki satu pasien subjek. Relasi FK memakai RESTRICT untuk penghapusan/perubahan ID profil.
+
+Contoh sintetis: dokter user `50` mengunggah laporan untuk profil pasien `12`, milik user `7`. Metadata file memuat `uploaded_by_user_id: 50` dan `patient_profile_id: 12`; pasien user `7` berhak membaca walaupun bukan pengunggah.
+
+**Patient profile ID berbeda dari user ID.** Ambil ID target dari directory dokter; jangan menganggap angka keduanya selalu sama.
+
+| Operasi | Patient | Doctor |
+| --- | --- | --- |
+| POST `/api/files` | Upload untuk profil sendiri; harus sudah punya profil | `403`; gunakan upload dengan target eksplisit |
+| GET `/api/files` | Lampiran profil sendiri, termasuk laporan dokter, ditambah legacy NULL milik pengunggah sendiri | Semua lampiran yang terhubung ke profil pasien dalam satu rumah sakit, ditambah legacy NULL unggahannya sendiri |
+| GET `/api/files/:id` dan POST `/api/files/:id/decrypt` | Hanya lampiran profil sendiri / legacy NULL unggahan sendiri | Semua lampiran terhubung ke profil pasien / legacy NULL unggahan sendiri |
+| Directory dan route `/api/doctor/...` | `403` | Diizinkan sesuai kontrak berikut |
+
+Setiap request membaca role terbaru dari database sekali melalui helper backend; role/ownership kiriman klien tidak dipercaya. Uploader tidak otomatis berhak jika bukan lagi dokter dan file tersebut memiliki pasien subjek lain. Role tidak disimpan/diambil dari JWT sebagai sumber izin. Role di luar patient/doctor ditolak. User dihapus menghasilkan `401` meskipun JWT belum kedaluwarsa.
+
+Metadata, daftar, download, dan update timing memakai predicate akses yang sama. Pasien lain menerima `404` untuk ID file yang tidak berwenang, bukan bocoran isi/keberadaan file. Tidak ada pembatasan penugasan dokter per pasien atau multi-hospital.
+
+### 12.2. Directory — `GET /api/doctor/patients`
+
+Cookie login role doctor wajib. Tanpa body, pagination, atau filter. Mengembalikan profil pasien beserta identitas akun minimum, urutan `patient_profile_id` ASC:
+
+```json
+{
+  "patients": [
+    {
+      "patient_profile_id": 12,
+      "user_id": 7,
+      "name": "Pasien Sintetis",
+      "username": "patient_demo"
+    }
+  ]
+}
+```
+
+Contoh sintetis. Akun pasien yang belum membuat profil tidak muncul dan belum bisa menjadi target lampiran. Hasil kosong tetap `200` dengan `{"patients":[]}`. Tidak mengirim NIK/BPJS, password hash, key, atau ciphertext. Header `Cache-Control: no-store`.
+
+Error: `401` cookie/user tidak valid; `403` bukan doctor; `500` database gagal, message `Failed to list patients`. Bentuk error JSON `{"message":"..."}`.
+
+### 12.3. Dokter upload — `POST /api/doctor/patients/:patient_profile_id/files`
+
+Body multipart `file`, batas 8 MiB file / 9 MiB body, sama dengan upload generik. Profil target wajib ada dan merupakan pasien; ID path harus integer positif dalam rentang backend. Tidak memerlukan profil pasien untuk akun dokter pengunggah.
+
+Contoh path: `/api/doctor/patients/12/files`. Backend menetapkan pengunggah dari akun login dan pasien dari profil target; field/query `user_id`, `role`, atau `patient_profile_id` lain tidak mengubah keduanya. Pasien tidak dapat memakai route ini walaupun memilih ID dirinya sendiri.
+
+Sukses `201` memakai bentuk upload yang sama: `{"message":"File encrypted and saved successfully","file":{...metadata...}}`. Field metadata tambahan pada semua respons file adalah:
+
+```json
+{
+  "id": 42,
+  "uploaded_by_user_id": 50,
+  "patient_profile_id": 12
+}
+```
+
+Cuplikan sintetis ini hanya memperlihatkan field identitas; nama/ukuran/algorithms/versi/timing tetap mengikuti bagian 11. Path storage dan kunci tidak dikirim. AES/DES/RC4 tetap dibuat lengkap dan diverifikasi sebelum insert; kegagalan DB/FK memicu cleanup ciphertext seperti upload biasa.
+
+Error: `400` ID/part file invalid, `401` cookie/user invalid, `403` bukan doctor, `404` target profil tidak ditemukan, `413` batas ukuran, `500` gangguan data/storage/kriptografi. Error file internal tetap `Failed to process file`; tidak mengirim plaintext sebagian.
+
+### 12.4. Dokter list — `GET /api/doctor/patients/:patient_profile_id/files`
+
+Role doctor dan target profil valid wajib. Tanpa body. Respons `200` adalah `{"files":[...metadata...]}`, ID file DESC, `Cache-Control: no-store`. Hanya lampiran dengan patient_profile_id tersebut; bukan semua unggahan dokter itu, dan bukan legacy yang belum ditetapkan pasiennya. Kosong memakai array `[]`. Profil tidak ada `404`, ID invalid `400`, pasien yang memakai route `403`.
+
+Untuk detail/download gunakan endpoint file yang sama:
+
+```text
+GET /api/files/42
+POST /api/files/42/decrypt?algorithm=aes
+POST /api/files/42/decrypt?algorithm=des
+POST /api/files/42/decrypt?algorithm=rc4
+```
+
+Pasien subjek menggunakan endpoint yang sama dengan cookie pasiennya; tidak perlu meniru akun dokter atau mengirim ID pengunggah.
+
+### 12.5. Perubahan klien dan migrasi
+
+- Pasien sekarang harus membuat profil sebelum POST `/api/files`; tanpa profil mendapat `404 Patient profile not found`.
+- Dokter yang sebelumnya memakai POST `/api/files` harus beralih ke route bertarget, karena upload tanpa pasien eksplisit sekarang `403`.
+- AutoMigrate menambahkan nullable patient_profile_id dan FK/index melalui model yang sudah ada. `user_id` pengunggah dan ciphertext lama tidak diubah. Tidak ada SQL migration baru atau migrasi database yang dijalankan dalam sesi ini.
+- Row lama bernilai NULL **tidak otomatis dipetakan**. Hanya pengunggahnya sendiri tetap boleh mengakses; dokter lain tidak memperoleh akses global ke data tanpa pasien yang diketahui. Pemetaan historis perlu diverifikasi pengelola secara terpisah, bukan ditebak dari pengunggah.
+- ID relasi/pengunggah tetap metadata plaintext untuk query/FK. Enkripsi berkas tidak mengautentikasi relasi ini terhadap administrator database; jangan mengklaim semua metadata terlindungi atau audit trail lengkap.
+
+Scope perubahan ini: directory pasien dan otorisasi lampiran. Endpoint dokter untuk detail profil lengkap/KTP, rekam medis, draf/final, penulisan catatan, dan history belum ditambahkan. Akun dokter tetap disediakan pengelola; tidak ada register publik yang bisa memilih role doctor.
