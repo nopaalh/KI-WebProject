@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
-  import Dashboard from './Dashboard.svelte'
+  import DoctorPortal from './DoctorPortal.svelte'
   import PatientPortal from './PatientPortal.svelte'
 
   type Role = 'patient' | 'doctor'
@@ -192,7 +192,7 @@
       {#if currentUser.role === 'patient'}
         <PatientPortal user={currentUser} onSwitchAccount={reset} />
       {:else}
-        <Dashboard user={currentUser} />
+        <DoctorPortal user={currentUser} />
       {/if}
     {/key}
   {:else}
