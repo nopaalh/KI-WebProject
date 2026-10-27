@@ -13,6 +13,7 @@ type Controller struct {
 	AuthController           *controllers.AuthController
 	FileController           *controllers.FileController
 	PatientProfileController *controllers.PatientProfileController
+	PatientKTPController     *controllers.PatientKTPController
 }
 
 func SetupRouter(c Controller) *gin.Engine {
@@ -50,6 +51,10 @@ func SetupRouter(c Controller) *gin.Engine {
 	RegisterFileRouter(api, c.FileController)
 	if c.PatientProfileController != nil {
 		RegisterPatientRouter(api, c.PatientProfileController)
+	}
+
+	if c.PatientKTPController != nil {
+		RegisterPatientKTPRouter(api, c.PatientKTPController)
 	}
 
 	return r
