@@ -54,6 +54,7 @@
       notice = 'Lengkapi semua kolom dengan isi yang benar.'
       return
     }
+    if (status === 'Final' && !window.confirm('Tandai catatan sebagai final? Revisi berikutnya akan menjadi versi baru.')) return
     const record = patient.records.find(item => item.id === editId)
     const version: MedicalVersion = {
       version: (record?.versions[0]?.version ?? 0) + 1,
@@ -105,7 +106,7 @@
           <label>Catatan pemeriksaan<textarea bind:value={note} required maxlength="20000" rows="10" placeholder="Tuliskan hasil, perkembangan, atau catatan pemeriksaan pasien."></textarea></label>
           <p class="patient-note">Draf dapat dibaca pasien ketika layanan rekam medis tersambung. Pastikan setiap catatan sudah layak dibagikan. Pada tampilan ini, perubahan hanya disimpan sementara.</p>
           {#if notice}<p class="patient-message" role="status">{notice}</p>{/if}
-          <div class="editor-actions"><button class="text-button cancel-edit" type="button" onclick={cancelEdit}>Batal</button><button class="patient-button secondary" type="submit">Simpan draf</button></div>
+          <div class="editor-actions"><button class="text-button cancel-edit" type="button" onclick={cancelEdit}>Batal</button><button class="patient-button secondary" type="submit">Simpan draf</button><button class="patient-button" type="button" onclick={() => save('Final')}>Tandai final</button></div>
         </form>
       </main>
     {:else}
