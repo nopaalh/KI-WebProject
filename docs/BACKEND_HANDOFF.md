@@ -101,7 +101,7 @@ Informasi kesehatan merupakan data pribadi spesifik menurut UU PDP. Identitas, k
 
 ## 6. Cakupan enkripsi yang disepakati
 
-> **Perubahan keputusan untuk profil pasien:** atas permintaan terbaru pengguna, schema `patient_profiles` menyimpan berat, tinggi, dan umur sebagai plaintext; hanya NIK dan nomor BPJS yang disiapkan sebagai tiga representasi terenkripsi. Ini pengecualian terhadap rancangan awal di bawah dan berpotensi bertentangan dengan ketentuan assignment melindungi seluruh data. Model baru belum menyediakan service enkripsi atau endpoint profil. Detail schema dan batasannya ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Jangan menyatakan seluruh data sensitif sudah terlindungi.
+> **Perubahan keputusan untuk profil pasien:** atas permintaan terbaru pengguna, schema `patient_profiles` menyimpan berat, tinggi, dan umur sebagai plaintext; hanya NIK dan nomor BPJS yang disiapkan sebagai tiga representasi terenkripsi. Ini pengecualian terhadap rancangan awal di bawah dan berpotensi bertentangan dengan ketentuan assignment melindungi seluruh data. Endpoint create `POST /api/patients/me/profile` sekarang menyediakan enkripsi NIK/BPJS dengan AES, DES, dan RC4 untuk record baru. Kedua kolom RC4 profil tetap nullable demi kompatibilitas record lama dari tahap AES/DES; backfill record lama belum disediakan/dijalankan. GET profil dan endpoint KTP belum tersedia. Detail schema dan batasannya ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Jangan menyatakan seluruh data sensitif sudah terlindungi.
 
 Setiap isi sensitif disimpan sebagai **tiga representasi terenkripsi dari plaintext yang sama**, masing-masing AES, DES, dan RC4. Bukan pengguna memilih satu cipher saat upload lalu dua cipher lain tidak digunakan.
 

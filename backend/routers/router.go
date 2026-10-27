@@ -10,8 +10,9 @@ import (
 )
 
 type Controller struct {
-	AuthController *controllers.AuthController
-	FileController *controllers.FileController
+	AuthController           *controllers.AuthController
+	FileController           *controllers.FileController
+	PatientProfileController *controllers.PatientProfileController
 }
 
 func SetupRouter(c Controller) *gin.Engine {
@@ -47,6 +48,9 @@ func SetupRouter(c Controller) *gin.Engine {
 
 	RegisterUserRouter(api, c.AuthController)
 	RegisterFileRouter(api, c.FileController)
+	if c.PatientProfileController != nil {
+		RegisterPatientRouter(api, c.PatientProfileController)
+	}
 
 	return r
 }
