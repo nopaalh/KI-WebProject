@@ -61,10 +61,18 @@
     phase = 'breaking'
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     animationTimer = setTimeout(async () => {
-      phase = 'form'
+      if (!reducedMotion && document.startViewTransition) {
+        const transition = document.startViewTransition(async () => {
+          phase = 'form'
+          await tick()
+        })
+        await transition.finished.catch(() => {})
+      } else {
+        phase = 'form'
+      }
       await tick()
       form?.querySelector('input')?.focus({ preventScroll: true })
-    }, reducedMotion ? 0 : 650)
+    }, reducedMotion ? 0 : 740)
   }
 
   function reset() {
@@ -196,13 +204,13 @@
       {/if}
     {/key}
   {:else}
-    <main class:choosing={phase === 'choose'} class:opened={phase !== 'choose'}>
+    <main class:choosing={phase !== 'form'} class:opened={phase === 'form'}>
 
       <header class="intro">
         <img class="app-logo" src="/images/portal-mark.svg" alt="Logo Portal Pasien" width="64" height="64" />
         <h1 class="intro-title">Selamat datang.</h1>
         <p class="intro-description">{phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
-        {#if phase === 'choose'}<p class="role-prompt">Masuk sebagai</p>{/if}
+        {#if phase !== 'form'}<p class="role-prompt">Masuk sebagai</p>{/if}
       </header>
 
       <div class="scene" aria-busy={pending}>

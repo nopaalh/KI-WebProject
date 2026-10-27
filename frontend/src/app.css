@@ -54,24 +54,28 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .opened .role-label::after { bottom: 0; }
 .slot { --direction: -1; min-width: 0; position: relative; aspect-ratio: 1331 / 2362; }
 .character { display: block; position: absolute; inset: 0; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; }
-.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/illustrator.png'); background-size: 200% 100%; background-repeat: no-repeat; mix-blend-mode: multiply; }
+.portrait, .fragment { position: absolute; inset: 0; background-image: url('/images/illustrator.png'); background-size: 200% 100%; background-repeat: no-repeat; mix-blend-mode: multiply; mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent), linear-gradient(transparent, #000 5%, #000 92%, transparent); mask-composite: intersect; }
 .patient .portrait, .patient .fragment { background-position: left center; }
 .doctor .portrait, .doctor .fragment { background-position: right center; }
 .doctor { --direction: 1; }
-.portrait { pointer-events: none; transform-origin: 50% 70%; transform: translate(var(--nudge, 0%), 0) scale(1); transition: transform 750ms cubic-bezier(.16,1,.3,1), filter 600ms ease, opacity 600ms ease; }
-.blurred .portrait { transform: translate(calc(var(--nudge, 0%) + var(--direction) * 10px), 8px) scale(.965); filter: blur(9px); opacity: .28; }
-.character:not(.still):hover .portrait, .character:not(.still):focus-visible .portrait { transform: translate(calc(var(--nudge, 0%) + var(--direction) * 5px), -10px) scale(1.025); filter: drop-shadow(0 18px 18px #20334a18); }
-.character::before { content: ''; position: absolute; inset: 15% -6% 5%; pointer-events: none; background: radial-gradient(ellipse, #dceaff85, transparent 68%); opacity: 0; transform: scale(.85); transition: opacity 650ms ease, transform 800ms cubic-bezier(.16,1,.3,1); }
+.portrait { pointer-events: none; transform-origin: 50% 70%; transform: translate3d(var(--nudge, 0%), 0, 0) scale(1); filter: blur(0); opacity: 1; transition: transform 800ms cubic-bezier(.22,1,.36,1), filter 700ms cubic-bezier(.22,1,.36,1), opacity 700ms cubic-bezier(.22,1,.36,1); }
+.choosing .portrait { will-change: transform, filter, opacity; }
+.chosen .portrait { view-transition-name: chosen-character; }
+::view-transition-group(chosen-character) { animation-duration: 520ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 400ms; animation-timing-function: ease-in-out; }
+.blurred .portrait { transform: translate3d(calc(var(--nudge, 0%) + var(--direction) * 6px), 4px, 0) scale(.985); filter: blur(6px); opacity: .42; }
+.character:not(.still):hover .portrait, .character:not(.still):focus-visible .portrait { transform: translate3d(calc(var(--nudge, 0%) + var(--direction) * 2px), -5px, 0) scale(1.012); }
+.character::before { content: ''; position: absolute; inset: 15% -6% 5%; pointer-events: none; background: radial-gradient(ellipse, #dceaff30, transparent 68%); opacity: 0; transform: scale(.92); transition: opacity 700ms ease, transform 800ms cubic-bezier(.22,1,.36,1); }
 .character:not(.still):hover::before, .character:not(.still):focus-visible::before { opacity: 1; transform: scale(1.08); }
 .role-label { position: absolute; left: 0; right: 0; bottom: -20px; display: flex; align-items: center; justify-content: center; gap: 9px; font-size: 20px; font-weight: 600; letter-spacing: .02em; color: #111111; transition: color 200ms; }
 .role-label::after { content: ''; position: absolute; left: calc(50% - 12px); bottom: -11px; width: 24px; height: 3px; background: #0071e3; border-radius: 3px; transform: scaleX(0); transition: transform 220ms ease; }
 .character:hover .role-label::after, .character:focus-visible .role-label::after, .still .role-label::after { transform: scaleX(1); }
 .shatter { position: absolute; inset: 0; pointer-events: none; }
-.fragment { animation: break-apart 620ms cubic-bezier(.35,0,.7,.4) both; animation-delay: calc(var(--i) * 5ms); }
+.fragment { animation: break-apart 680ms cubic-bezier(.22,.61,.36,1) both; animation-delay: calc(var(--i) * 5ms); }
 @keyframes break-apart {
   0% { opacity: 1; transform: translate(0,0) rotate(0); filter: blur(0); }
-  25% { opacity: .95; }
-  100% { opacity: 0; transform: translate(var(--x), 48px) rotate(var(--r)); filter: blur(7px); }
+  25% { opacity: .8; }
+  100% { opacity: 0; transform: translate(var(--x), 28px) rotate(var(--r)); filter: blur(5px); }
 }
 .back { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 20px; background: #fff; border: 1px solid #dce1d7; border-radius: 100px; color: #111111; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px #30392b04; transition: background 180ms, border-color 180ms, box-shadow 180ms; }
 .back:hover { background: #f5f7f1; border-color: #bbc6b1; box-shadow: 0 3px 12px #30392b08; }
