@@ -47,6 +47,27 @@ func TestDESRotateLeft(t *testing.T) {
 	}
 }
 
+func TestDESPermutedChoiceTables(t *testing.T) {
+	// PC-1: 56 posisi berbeda dari 64, tanpa bit paritas (kelipatan 8).
+	seen := make(map[byte]bool)
+	for _, position := range desPC1 {
+		if position < 1 || position > 64 || position%8 == 0 || seen[position] {
+			t.Fatalf("desPC1: posisi %d di luar rentang, paritas, atau berulang", position)
+		}
+		seen[position] = true
+	}
+
+	// PC-2: 48 posisi berbeda dari 56, tanpa 8 bit yang dibuang FIPS 46-3.
+	dropped := map[byte]bool{9: true, 18: true, 22: true, 25: true, 35: true, 38: true, 43: true, 54: true}
+	seen = make(map[byte]bool)
+	for _, position := range desPC2 {
+		if position < 1 || position > 56 || dropped[position] || seen[position] {
+			t.Fatalf("desPC2: posisi %d di luar rentang, dibuang, atau berulang", position)
+		}
+		seen[position] = true
+	}
+}
+
 func TestDESPermutationInitialPermutation(t *testing.T) {
 	input := make([]byte, 64)
 	input[0] = 1 // hanya bit 1 yang menyala
