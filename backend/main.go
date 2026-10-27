@@ -53,9 +53,14 @@ func main() {
 	}
 	fileController := controllers.NewFileController(fileService)
 
+	profileRepo := repositories.NewPatientProfileRepository(config.DB)
+	profileService := services.NewPatientProfileService(profileRepo, userRepo, fileKey)
+	profileController := controllers.NewPatientProfileController(profileService)
+
 	r := routers.SetupRouter(routers.Controller{
-		AuthController: authController,
-		FileController: fileController,
+		AuthController:           authController,
+		FileController:           fileController,
+		PatientProfileController: profileController,
 	})
 
 	PORT := os.Getenv("SERVER_PORT")
