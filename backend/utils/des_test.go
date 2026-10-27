@@ -2,6 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"crypto/des"
+	"math/rand/v2"
+	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -107,6 +111,148 @@ func TestDESSubKeyMaker(t *testing.T) {
 	for round, bits := range want {
 		if got := subkeys[round-1]; !bytes.Equal(got, bitsFromString(bits)) {
 			t.Fatalf("K%d = %v, want %v", round, got, bitsFromString(bits))
+		}
+	}
+}
+
+// bitsFromHex mengubah 16 digit hex menjadi 64 elemen bit.
+func bitsFromHex(s string) []byte {
+	value, err := strconv.ParseUint(s, 16, 64)
+	if err != nil {
+		panic(err)
+	}
+	bits := make([]byte, 64)
+	for i := range bits {
+		bits[i] = byte(value >> (63 - i) & 1)
+	}
+	return bits
+}
+
+func TestDESFeistelTables(t *testing.T) {
+	// desFP adalah kebalikan desIP.
+	for _, hex := range []string{"0123456789ABCDEF", "FFFFFFFFFFFFFFFF", "8000000000000001"} {
+		block := bitsFromHex(hex)
+		if got := DESPermutation(DESPermutation(block, desIP[:]), desFP[:]); !bytes.Equal(got, block) {
+			t.Fatalf("FP(IP(%s)) = %v", hex, got)
+		}
+	}
+
+	// desP memakai tiap posisi 1..32 tepat sekali.
+	seen := make(map[byte]bool)
+	for _, position := range desP {
+		if position < 1 || position > 32 || seen[position] {
+			t.Fatalf("desP: posisi %d di luar rentang atau berulang", position)
+		}
+		seen[position] = true
+	}
+
+	// desE: bit tepi tiap kelompok 4 (posisi 4n dan 4n+1) muncul dua kali, sisanya sekali.
+	count := make(map[byte]int)
+	for _, position := range desE {
+		count[position]++
+	}
+	for position := byte(1); position <= 32; position++ {
+		want := 1
+		if position%4 == 0 || position%4 == 1 {
+			want = 2
+		}
+		if count[position] != want {
+			t.Fatalf("desE: posisi %d muncul %d kali, want %d", position, count[position], want)
+		}
+	}
+
+	// Tiap baris S-box adalah permutasi 0..15.
+	for box := range desSBoxes {
+		for row := range desSBoxes[box] {
+			used := [16]bool{}
+			for _, value := range desSBoxes[box][row] {
+				if value > 15 || used[value] {
+					t.Fatalf("S%d baris %d bukan permutasi 0..15", box+1, row)
+				}
+				used[value] = true
+			}
+		}
+	}
+}
+
+func TestDESBitsAndInt(t *testing.T) {
+	if got := DESBitsToInt([]byte{1, 1, 0, 0}); got != 12 {
+		t.Fatalf("DESBitsToInt(1100) = %d, want 12", got)
+	}
+	if got := DESIntToBits(12, 4); !bytes.Equal(got, []byte{1, 1, 0, 0}) {
+		t.Fatalf("DESIntToBits(12, 4) = %v, want [1 1 0 0]", got)
+	}
+	// Lebar lebih besar dari panjang bit angka diisi nol di kiri.
+	if got := DESIntToBits(5, 6); !bytes.Equal(got, []byte{0, 0, 0, 1, 0, 1}) {
+		t.Fatalf("DESIntToBits(5, 6) = %v, want [0 0 0 1 0 1]", got)
+	}
+}
+
+func TestDESFeistelFunction(t *testing.T) {
+	// Contoh kerja FIPS ronde 1: R0 dan K1 menghasilkan F = 234AA9BB.
+	r0 := bitsFromString("1111 0000 1010 1010 1111 0000 1010 1010")
+	k1 := bitsFromString("000110 110000 001011 101111 111111 000111 000001 110010")
+
+	got := DESFeistelFunction(r0, k1)
+
+	if want := bitsFromString("0010 0011 0100 1010 1010 1001 1011 1011"); !bytes.Equal(got, want) {
+		t.Fatalf("F(R0, K1) = %v, want %v", got, want)
+	}
+}
+
+func TestDESBytesAndBits(t *testing.T) {
+	data := []byte{0xA5, 0x00, 0xFF}
+
+	bits := DESBytesToBits(data)
+
+	if want := []byte{1, 0, 1, 0, 0, 1, 0, 1}; !bytes.Equal(bits[:8], want) {
+		t.Fatalf("0xA5 = %v, want %v", bits[:8], want)
+	}
+	if got := DESBitsToBytes(bits); !bytes.Equal(got, data) {
+		t.Fatalf("round trip = %x, want %x", got, data)
+	}
+}
+
+// Kunci dan blok acak (seed tetap) dibandingkan dengan crypto/des dari stdlib Go.
+func TestDESCryptMatchesStdlib(t *testing.T) {
+	random := rand.NewChaCha8([32]byte{1})
+	for i := 0; i < 100; i++ {
+		key, block := make([]byte, 8), make([]byte, 8)
+		random.Read(key)
+		random.Read(block)
+
+		stdlib, err := des.NewCipher(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := make([]byte, 8)
+		stdlib.Encrypt(want, block)
+
+		subkeys := DESSubKeyMaker(DESBytesToBits(key))
+		got := DESBitsToBytes(DESCrypt(DESBytesToBits(block), subkeys))
+
+		if !bytes.Equal(got, want) {
+			t.Fatalf("key %x block %x: got %x, want %x", key, block, got, want)
+		}
+	}
+}
+
+func TestDESCrypt(t *testing.T) {
+	for _, vector := range []struct{ key, plain, cipher string }{
+		{"133457799BBCDFF1", "0123456789ABCDEF", "85E813540F0AB405"},
+		{"0E329232EA6D0D73", "8787878787878787", "0000000000000000"},
+	} {
+		subkeys := DESSubKeyMaker(bitsFromHex(vector.key))
+
+		if got := DESCrypt(bitsFromHex(vector.plain), subkeys); !bytes.Equal(got, bitsFromHex(vector.cipher)) {
+			t.Fatalf("encrypt %s: got %v, want %s", vector.plain, got, vector.cipher)
+		}
+
+		// Subkey dibalik pada salinan array, jadi subkeys asli tidak berubah.
+		reversed := subkeys
+		slices.Reverse(reversed[:])
+		if got := DESCrypt(bitsFromHex(vector.cipher), reversed); !bytes.Equal(got, bitsFromHex(vector.plain)) {
+			t.Fatalf("decrypt %s: got %v, want %s", vector.cipher, got, vector.plain)
 		}
 	}
 }
