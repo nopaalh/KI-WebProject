@@ -4,9 +4,18 @@ Folder ini menyimpan perubahan schema SQL bernomor yang bisa di-review melalui G
 
 ## Cakupan dan prasyarat
 
-`000001_add_aes_processing_times` adalah migration **incremental untuk database yang sudah memiliki tabel `files`**, bukan baseline schema untuk database kosong. Tabel `users`/`files` sebelumnya dikelola oleh GORM `AutoMigrate` pada `backend/main.go`.
+Migration bersifat **incremental untuk database yang sudah memiliki tabel `users` dan `files`** (dibuat awalnya oleh GORM `AutoMigrate` pada `backend/main.go`), bukan baseline untuk database kosong. Terapkan berurutan; tiap `up` bisa diulang tanpa efek tambahan.
 
-Migration up menambahkan:
+| Migration | Isi | Syarat |
+| --- | --- | --- |
+| `000001_add_aes_processing_times` | Kolom timing AES di `files` | Tabel `files` |
+| `000002_add_user_role` | `users.role` (default `patient`), check `patient`/`doctor`, unique index `(id, role)` | Tabel `users` |
+| `000003_create_patient_profiles` | Tabel `patient_profiles` dengan FK `(user_id, user_role)` ke `users(id, role)` | 000002 |
+| `000004_create_patient_ktps` | Tabel `patient_ktps` (16 field × AES/DES/RC4) dengan FK ke `patient_profiles` | 000003 |
+
+Definisi 000002-000004 dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model di `backend/models/` (hasil `pg_dump` identik, dan `AutoMigrate` tidak mengubah apa pun sesudahnya). Bila model berubah, migration baru harus ditambahkan.
+
+Migration 000001 menambahkan:
 
 | Kolom | Tipe PostgreSQL | Nullable | Default | Satuan |
 | --- | --- | --- | --- | --- |
@@ -21,7 +30,7 @@ Definisi ini mengikuti field `int64` dan tag GORM pada `backend/models/file.go`.
 
 **AutoMigrate pada startup tetap aktif dan tidak diubah oleh penambahan file SQL ini.** File migration tidak dijalankan otomatis oleh aplikasi. Ini menyediakan langkah schema yang bisa diperiksa dan diterapkan sebelum smoke test; belum merupakan perpindahan penuh ke sistem migration berversi.
 
-Untuk database kosong, diperlukan baseline schema terlebih dahulu; jangan menjalankan migration ini dengan asumsi ia membuat semua tabel. Untuk deployment yang sepenuhnya mengandalkan migration, baseline dan penggantian alur `AutoMigrate` perlu direncanakan terpisah.
+Untuk database kosong, tabel `users` dan `files` harus ada dulu (jalankan backend sekali atau buat baseline); migration ini tidak membuat keduanya. Untuk deployment yang sepenuhnya mengandalkan migration, baseline dan penggantian alur `AutoMigrate` perlu direncanakan terpisah.
 
 ## Sebelum menjalankan
 
@@ -40,6 +49,8 @@ psql "host=YOUR_HOST port=5432 dbname=YOUR_DATABASE user=YOUR_USER sslmode=requi
   -X -W --set=ON_ERROR_STOP=1 \
   --file=migrations/000001_add_aes_processing_times.up.sql
 ```
+
+Ulangi dengan `--file=` berikutnya (`000002_add_user_role.up.sql`, `000003_create_patient_profiles.up.sql`, `000004_create_patient_ktps.up.sql`), berhenti bila ada yang gagal.
 
 - `-X` menghindari efek konfigurasi `psqlrc` lokal.
 - `-W` meminta password secara interaktif; jangan menjalankan contoh ini melalui proses non-interaktif yang tidak bisa menjawab prompt.
@@ -72,7 +83,9 @@ Catat migration yang diterapkan, database target, waktu, dan commit Git terkait 
 
 ## Rollback
 
-**Destruktif:** rollback menghapus kedua kolom beserta seluruh nilai timing di dalamnya, termasuk bila kolom itu awalnya dibuat oleh `AutoMigrate` sebelum SQL up dijalankan. Ia tidak dapat menentukan siapa yang pertama kali menambahkan kolom tersebut. Backup nilai yang diperlukan terlebih dahulu.
+Rollback dijalankan **terbalik** (000004 dulu): `down` 000003 gagal bila `patient_ktps` masih ada, dan `down` 000002 menghapus index yang dibutuhkan FK `patient_profiles`. `down` 000002-000004 menghapus kolom/tabel beserta seluruh isinya (role, profil pasien, KTP terenkripsi); backup dulu.
+
+**Destruktif (000001):** rollback menghapus kedua kolom beserta seluruh nilai timing di dalamnya, termasuk bila kolom itu awalnya dibuat oleh `AutoMigrate` sebelum SQL up dijalankan. Ia tidak dapat menentukan siapa yang pertama kali menambahkan kolom tersebut. Backup nilai yang diperlukan terlebih dahulu.
 
 Hentikan atau rollback aplikasi yang masih membaca/menulis field timing sebelum menghapus kolom. Jangan menyalakan kembali versi aplikasi sekarang setelah rollback schema saja: `AutoMigrate` akan membuat kolom tersebut lagi, sementara data timing lama tetap hilang.
 
@@ -82,10 +95,12 @@ psql "host=YOUR_HOST port=5432 dbname=YOUR_DATABASE user=YOUR_USER sslmode=requi
   --file=migrations/000001_add_aes_processing_times.down.sql
 ```
 
+Pola yang sama berlaku untuk file `.down.sql` lainnya.
+
 Rollback ini tidak menghapus record file, pengguna, atau ciphertext di disk.
 
 ## Setelah schema siap
 
-Untuk validasi lokal terisolasi, jalankan [script smoke test Docker](../../docs/SMOKE_TEST.md). Script memakai PostgreSQL sementara, menguji migration up/down serta alur API, dan tidak membaca `.env` aplikasi atau menyentuh database remote.
+Untuk validasi lokal terisolasi, jalankan PostgreSQL sementara (misalnya `docker run --rm -e POSTGRES_PASSWORD=local -p 54329:5432 postgres:16-alpine`), buat tabel `users`/`files` versi lama, lalu terapkan `up`, ulangi `up`, jalankan `down` terbalik, dan `up` lagi. Jangan memakai `DATABASE_URL` dari `.env` aplikasi untuk uji ini.
 
 Untuk menguji database aplikasi yang sudah diizinkan, ikuti [panduan alur file](../../docs/FILES.md): pastikan key backend sudah dikonfigurasi, lalu register/login, upload, periksa metadata dan ciphertext, dekripsi dan bandingkan byte, kemudian restart dengan key yang sama dan dekripsi ulang. Verifikasi schema saja belum membuktikan alur tersebut berjalan.
