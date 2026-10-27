@@ -12,13 +12,14 @@ Workflow disiapkan di repo, **belum aktif di GitHub sebelum di-commit/push dan s
 
 Berjalan pada setiap PR ke `main`, push ke `main`, dan manual dispatch. Tidak memakai path filter supaya required checks tetap muncul pada PR dokumentasi.
 
-Satu job menjalankan pemeriksaan backend:
+Dua job menjalankan pemeriksaan backend dan frontend:
 
 | Required check | Isi |
 | --- | --- |
 | `Backend checks` | Go formatting, `go mod verify`, `go vet`, `go test -race` |
+| `Frontend checks` | Node.js 24, `npm ci`, Svelte/TypeScript checks, Vite production build |
 
-Go mengikuti `backend/go.mod`. CI tidak menjalankan smoke test, Python smoke harness, Docker, atau PostgreSQL nyata. Smoke test tetap dapat dijalankan manual sesuai [SMOKE_TEST.md](SMOKE_TEST.md). CI hijau tidak membuktikan integrasi PostgreSQL atau seluruh rancangan rumah sakit sudah berjalan.
+Go mengikuti `backend/go.mod`. Frontend memakai lockfile npm dan tidak menghubungi API saat build. Tambahkan `Frontend checks` ke required status checks di pengaturan branch protection agar kegagalan frontend ikut memblokir merge; workflow auto-merge yang ada tetap hanya memeriksa prasyarat `Backend checks`. CI tidak menjalankan smoke test, Python smoke harness, Docker, atau PostgreSQL nyata. Smoke test tetap dapat dijalankan manual sesuai [SMOKE_TEST.md](SMOKE_TEST.md). CI hijau tidak membuktikan integrasi PostgreSQL atau seluruh rancangan rumah sakit sudah berjalan.
 
 ### `.github/workflows/auto-merge.yml`
 
