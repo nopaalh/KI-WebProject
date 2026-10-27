@@ -33,6 +33,7 @@ func main() {
 	}
 
 	userRepo := repositories.NewUserRepository(config.DB)
+	profileRepo := repositories.NewPatientProfileRepository(config.DB)
 	authService := services.NewAuthService(userRepo)
 	authController := controllers.NewAuthController(authService)
 
@@ -47,13 +48,12 @@ func main() {
 		storageDir = "storage/uploads"
 	}
 	fileRepo := repositories.NewFileRepository(config.DB)
-	fileService, err := services.NewFileService(fileRepo, storageDir, fileKey)
+	fileService, err := services.NewFileService(fileRepo, userRepo, profileRepo, storageDir, fileKey)
 	if err != nil {
 		panic("Failed to initialize file service: " + err.Error())
 	}
 	fileController := controllers.NewFileController(fileService)
 
-	profileRepo := repositories.NewPatientProfileRepository(config.DB)
 	profileService := services.NewPatientProfileService(profileRepo, userRepo, fileKey)
 	profileController := controllers.NewPatientProfileController(profileService)
 
@@ -61,11 +61,16 @@ func main() {
 	ktpService := services.NewPatientKTPService(ktpRepo, profileService, fileKey)
 	ktpController := controllers.NewPatientKTPController(ktpService)
 
+	doctorRepo := repositories.NewDoctorRepository(config.DB)
+	doctorService := services.NewDoctorService(userRepo, doctorRepo)
+	doctorController := controllers.NewDoctorController(doctorService)
+
 	r := routers.SetupRouter(routers.Controller{
 		AuthController:           authController,
 		FileController:           fileController,
 		PatientProfileController: profileController,
 		PatientKTPController:     ktpController,
+		DoctorController:         doctorController,
 	})
 
 	PORT := os.Getenv("SERVER_PORT")

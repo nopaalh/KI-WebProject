@@ -9,7 +9,7 @@ Panduan operasional untuk `/api/files`; ringkasan kontrak ada di [API.md](API.md
 - Database, `JWT_SECRET`, dan `SERVER_PORT` tetap mengikuti [API.md](API.md#2-base-url-dan-konfigurasi).
 - Jangan commit/mengirim key ke frontend atau menyimpannya di database. Kehilangan key membuat ciphertext tidak bisa dipulihkan; rotasi/re-enkripsi otomatis belum tersedia.
 
-Storage dibuat dengan mode `0700`; ciphertext memakai nama acak `aes-*.bin`, `des-*.bin`, `rc4-*.bin` dengan mode `0600`. Nama upload tidak dipakai sebagai path. Database menyimpan owner, metadata, tiga path, versi set cipher, dan enam timing; **path dan key tidak dikirim ke klien**.
+Storage dibuat dengan mode `0700`; ciphertext memakai nama acak `aes-*.bin`, `des-*.bin`, `rc4-*.bin` dengan mode `0600`. Nama upload tidak dipakai sebagai path. Database menyimpan pengunggah, pasien subjek, metadata, tiga path, versi set cipher, dan enam timing; **path dan key tidak dikirim ke klien**.
 
 Storage tidak boleh menjadi public static hosting. Pakai volume durable; backup database, ciphertext, dan key secara konsisten dengan key disimpan terpisah. Restore/pindah storage harus mempertahankan atau memperbarui path absolut dengan benar.
 
@@ -38,12 +38,17 @@ Default timing `0` pada record lama bukan hasil benchmark. Metadata database, te
 
 ## 2. Autentikasi dan ownership
 
-Keempat endpoint menggunakan cookie HttpOnly `access_token` melalui AuthMiddleware, bukan Bearer token. User ID berasal dari JWT tervalidasi, bukan query/body. Query metadata, download, dan update timing dibatasi ID file **dan** ID user. File tidak ada/bukan milik user sama-sama `404`. List hanya memuat file sendiri, ID DESC, tanpa pagination/filter; query `user_id` tidak mengubah pemilik.
+Endpoint menggunakan cookie HttpOnly `access_token` melalui AuthMiddleware, bukan Bearer token. User ID berasal dari JWT; role terbaru dibaca dari database sekali per request. `files.user_id` adalah pengunggah, **bukan** pasien subjek; `files.patient_profile_id` merujuk profil pasien.
+
+Pasien dapat membaca lampiran profil sendiri, termasuk unggahan dokter. Dokter boleh membaca semua lampiran yang terhubung ke profil pasien dalam satu rumah sakit. Legacy tanpa pasien (NULL) hanya tetap diakses pengunggah sendiri, bukan dibuka global. Predicate yang sama dipakai untuk metadata/list/download/update timing; pasien yang tidak berwenang mendapat `404`.
+
+Pasien upload lewat POST `/api/files` setelah membuat profil. Dokter upload melalui POST `/api/doctor/patients/:patient_profile_id/files`; upload generik tanpa target ditolak `403`. Directory dan list per pasien: GET `/api/doctor/patients` serta GET `/api/doctor/patients/:patient_profile_id/files`. Kontrak lengkap, perubahan klien, dan migrasi: [API.md bagian 12](API.md#12-akses-dokter-dan-pasien-subjek-lampiran). Query/body ID klien tidak mengubah pemilik atau role.
 
 ## 3. Kontrak endpoint
 
 ### Upload — `POST /api/files`
 
+- Khusus role patient, target profil sendiri ditentukan backend. Profil belum ada: `404`; role doctor: gunakan endpoint upload bertarget.
 - `multipart/form-data`, field file `file`; jangan set Content-Type manual di browser.
 - Maksimal **8 MiB** input dan **9 MiB** seluruh body termasuk multipart. Batas video belum dinaikkan; pipeline masih in-memory.
 - Tidak ada pemilihan cipher saat upload: ketiganya selalu digunakan.
@@ -56,6 +61,8 @@ Keempat endpoint menggunakan cookie HttpOnly `access_token` melalui AuthMiddlewa
 ```json
 {
   "id": 1,
+  "uploaded_by_user_id": 50,
+  "patient_profile_id": 12,
   "original_name": "laporan.pdf",
   "original_size": 4096,
   "original_type": "application/pdf",
@@ -75,7 +82,9 @@ ID/ukuran/nama adalah contoh sintetis; timing nol di contoh **hanya penanda form
 
 - `algorithm` dipertahankan untuk kompatibilitas sebagai **label cipher download default AES**, bukan daftar seluruh cipher.
 - `algorithms` berasal dari path nonkosong pada metadata; bukan pemeriksaan integritas/keberadaan file live. Legacy biasanya `["aes"]`; metadata-only dapat `[]`.
-- `cipher_set_version` membedakan record legacy dan record yang mewajibkan tiga cipher.
+- `cipher_set_version` membedakan format legacy dan tiga cipher; ini terpisah dari apakah pasien subjek sudah ditetapkan.
+- `uploaded_by_user_id` adalah identitas pengunggah; `patient_profile_id` adalah profil pasien subjek, nullable pada row lama. Keduanya tidak harus sama dan yang kedua bukan user ID.
+- AutoMigrate menambahkan FK/index nullable pasien; record lama tidak otomatis dipetakan. Relasi membatasi penghapusan profil yang masih mempunyai lampiran.
 - `original_name` dibersihkan menjadi basename. `original_type` adalah metadata multipart dari klien, bukan validasi format isi.
 - GET metadata/list tidak membaca disk atau mengukur ulang; tetap menyertakan record historis. Tidak ada ciphertext/path/key dalam respons.
 
@@ -102,8 +111,9 @@ Header timing nol di atas ilustrasi format, bukan hasil. Body berisi bytes asli,
 | Status | Kondisi |
 | --- | --- |
 | `400` | Multipart/file/ID tidak valid atau algorithm bukan aes/des/rc4 |
-| `401` | Cookie/token/ID autentikasi tidak valid |
-| `404` | Record tidak ada atau bukan milik user |
+| `401` | Cookie/token/akun autentikasi tidak valid |
+| `403` | Role tidak berwenang, termasuk pasien pada route dokter atau dokter pada upload tanpa target |
+| `404` | Record tidak ada/tidak berwenang menurut subject, atau profil target upload belum ada |
 | `409` | Memilih DES/RC4 untuk record legacy AES-only |
 | `413` | File >8 MiB atau body >9 MiB |
 | `500` | Gangguan disk/DB, set ciphertext tidak lengkap/rusak/tidak cocok, key salah, atau update timing gagal |
@@ -161,4 +171,4 @@ Untuk fetch lintas origin gunakan base URL backend dan credentials. CORS dev tet
 
 ## 7. Verifikasi
 
-Tes mencakup round-trip tiap cipher, file kosong/binary, kepemilikan, set hilang/rusak/tidak cocok, path/symlink, rollback kegagalan enkripsi/write/verifikasi/DB, cleanup failure, kompatibilitas legacy, serta query/timing whitelist DryRun. Tidak ada migrasi atau PostgreSQL nyata yang dijalankan dalam sesi ini. Smoke harness lama bukan bukti format metadata tiga cipher sudah diuji end-to-end; pembaruan harness bukan bagian CI.
+Tes mencakup round-trip tiap cipher, file kosong/binary, kepemilikan, set hilang/rusak/tidak cocok, path/symlink, rollback kegagalan enkripsi/write/verifikasi/DB, cleanup failure, kompatibilitas legacy, serta query/timing whitelist DryRun. Tidak ada migrasi atau PostgreSQL nyata yang dijalankan dalam sesi ini. Smoke harness lama perlu menyesuaikan metadata serta membuat profil pasien sebelum upload; bukan bukti alur tiga cipher/relasi lampiran sudah diuji end-to-end, dan bukan bagian CI.
