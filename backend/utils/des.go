@@ -38,6 +38,26 @@ func DESRotateLeft(bits []byte, shift int) []byte {
 	return temp
 }
 
+// DESSubKeyMaker buat gabungin dan iterasi tiap ronde.
+// key berisi 64 bit , hasilnya 16 subkey masing-masing 48 bit.
+func DESSubKeyMaker(key []byte) [16][]byte {
+	var subkeys [16][]byte
+	c, d := DESSplit(DESPermutation(key, desPC1[:]))
+
+	for round := 1; round <= 16; round++ {
+		shift := 2
+		switch round {
+		case 1, 2, 9, 16:
+			shift = 1
+		}
+		// c dan d diputar terus dari hasil ronde sebelumnya, bukan dari c0 dan d0.
+		c = DESRotateLeft(c, shift)
+		d = DESRotateLeft(d, shift)
+		subkeys[round-1] = DESPermutation(DESMerge(c, d), desPC2[:])
+	}
+	return subkeys
+}
+
 // Plaintext sampe sebelum feistel round
 // buat pengacak pertama plaintext
 var desIP = [64]byte{

@@ -86,6 +86,31 @@ func TestDESKeyScheduleFirstRoundKey(t *testing.T) {
 	}
 }
 
+func TestDESSubKeyMaker(t *testing.T) {
+	// Kunci 133457799BBCDFF1; ronde 9 adalah geser 1 bit pertama setelah deretan geser 2 bit.
+	key := bitsFromString("00010011 00110100 01010111 01111001 10011011 10111100 11011111 11110001")
+	want := map[int]string{
+		1:  "000110 110000 001011 101111 111111 000111 000001 110010",
+		2:  "011110 011010 111011 011001 110110 111100 100111 100101",
+		8:  "111101 111000 101000 111010 110000 010011 101111 111011",
+		9:  "111000 001101 101111 101011 111011 011110 011110 000001",
+		16: "110010 110011 110110 001011 000011 100001 011111 110101",
+	}
+
+	subkeys := DESSubKeyMaker(key)
+
+	for round, subkey := range subkeys {
+		if len(subkey) != 48 {
+			t.Fatalf("subkey ronde %d panjangnya %d, want 48", round+1, len(subkey))
+		}
+	}
+	for round, bits := range want {
+		if got := subkeys[round-1]; !bytes.Equal(got, bitsFromString(bits)) {
+			t.Fatalf("K%d = %v, want %v", round, got, bitsFromString(bits))
+		}
+	}
+}
+
 func TestDESRotateLeft(t *testing.T) {
 	bits := []byte{1, 2, 3, 4}
 	original := bytes.Clone(bits)
