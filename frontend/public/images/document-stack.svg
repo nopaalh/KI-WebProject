@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160" viewBox="0 0 200 160" fill="none">
+  <defs>
+    <linearGradient id="paper" x1="75" y1="27" x2="133" y2="139" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset="1" stop-color="#f0f5fc"/></linearGradient>
+    <linearGradient id="fold" x1="119" y1="24" x2="140" y2="49" gradientUnits="userSpaceOnUse"><stop stop-color="#e6effc"/><stop offset="1" stop-color="#d6e5fa"/></linearGradient>
+    <filter id="shadow" x="0" y="0" width="200" height="160" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>
+  <ellipse cx="104" cy="139" rx="45" ry="5" fill="#1c3b6620" filter="url(#shadow)"/>
+  <g transform="rotate(-13 96 81)"><rect x="53" y="30" width="78" height="103" rx="9" fill="#e7effa" stroke="#d7e3f2"/></g>
+  <g transform="rotate(7 106 82)"><rect x="65" y="26" width="78" height="108" rx="9" fill="#f8fbff" stroke="#d4e0f0"/></g>
+  <path d="M79 23h39l23 23v80a9 9 0 0 1-9 9H79a9 9 0 0 1-9-9V32a9 9 0 0 1 9-9Z" fill="url(#paper)" stroke="#cfdeef"/>
+  <path d="M118 23v15a8 8 0 0 0 8 8h15l-23-23Z" fill="url(#fold)"/>
+  <rect x="88" y="58" width="35" height="35" rx="11" fill="#e8f1ff"/>
+  <path d="M103 67h5v6h6v5h-6v6h-5v-6h-6v-5h6v-6Z" fill="#0071e3"/>
+  <path d="M89 108h33M89 117h23" stroke="#c5d3e5" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -159,13 +159,13 @@
 <svelte:head>
   <title>{currentUser ? 'Akun · Portal Pasien' : phase === 'choose' ? 'Portal Pasien' : mode === 'login' ? 'Masuk · Portal Pasien' : 'Daftar · Portal Pasien'}</title>
   <meta name="description" content="Pilih pasien atau dokter untuk melanjutkan ke portal." />
-  <link rel="icon" type="image/png" href="/images/portal-mark.png" />
+  <link rel="icon" type="image/svg+xml" href="/images/portal-mark.svg" />
 </svelte:head>
 
 <div class="app-shell">
   <header class="topbar">
     <button class="wordmark" type="button" onclick={reset} disabled={pending} aria-label="Portal Pasien, kembali ke pilihan peran">
-      <img src="/images/portal-mark.png" alt="" width="34" height="34" />
+      <img src="/images/portal-mark.svg" alt="" width="34" height="34" />
       <span>Portal Pasien<span class="wordmark-caption">Ruang kesehatan Anda</span></span>
     </button>
     <nav class="account-nav" aria-label="Navigasi akun">
@@ -180,7 +180,7 @@
   <main class:choosing={phase === 'choose'} class:opened={phase !== 'choose'}>
 
     <header class="intro">
-      <img class="app-logo" src="/images/portal-mark.png" alt="Logo Portal Pasien" width="64" height="64" />
+      <img class="app-logo" src="/images/portal-mark.svg" alt="Logo Portal Pasien" width="64" height="64" />
       <h1 class="intro-title">Selamat datang.</h1>
       <p class="intro-description">{currentUser ? 'Akun Anda telah terhubung.' : phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
       {#if phase === 'choose'}<p class="role-prompt">Masuk sebagai</p>{/if}
