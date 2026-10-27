@@ -59,3 +59,45 @@ export async function fetchWithHandling(input: string, init: RequestInit = {}): 
   }
   return response
 }
+
+export type PatientProfileData = { id: number; user_id: number; weight_kg: number; height_cm: number; age: number; nik: string; bpjs_number: string }
+export type CreatePatientProfilePayload = { weight_kg: number; height_cm: number; age: number; nik: string; bpjs_number: string }
+export type PatientKTPData = { id: number; patient_profile_id: number; nik: string; full_name: string; birth_place: string; birth_date: string; gender: string; blood_type: string; address: string; rt: string; rw: string; village: string; district: string; religion: string; marital_status: string; occupation: string; citizenship: string }
+export type CreatePatientKTPPayload = { full_name: string; birth_place: string; birth_date: string; gender: 'Laki-laki' | 'Perempuan'; blood_type: 'A' | 'B' | 'AB' | 'O' | '-'; address: string; rt: string; rw: string; village: string; district: string; religion: string; marital_status: 'Belum Kawin' | 'Kawin' | 'Cerai Hidup' | 'Cerai Mati'; occupation: string; citizenship: 'WNI' | 'WNA' }
+
+export async function apiLogout(): Promise<void> {
+  const res = await fetchWithHandling('/api/users/logout', { method: 'POST', signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json' } })
+  await res.json().catch(() => null)
+}
+
+export async function apiGetPatientProfile(signal?: AbortSignal): Promise<PatientProfileData> {
+  const res = await fetchWithHandling('/api/patients/me/profile', { method: 'GET', signal: signal ?? AbortSignal.timeout(15000), headers: { Accept: 'application/json' } })
+  const data = await res.json()
+  if (!data?.profile || typeof data.profile.id !== 'number') throw new ApiError(500, 'Respons profil pasien tidak sesuai.')
+  return data.profile as PatientProfileData
+}
+
+export async function apiCreatePatientProfile(payload: CreatePatientProfilePayload): Promise<void> {
+  const res = await fetchWithHandling('/api/patients/me/profile', { method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) })
+  await res.json().catch(() => null)
+}
+
+export async function apiGetPatientKTP(signal?: AbortSignal): Promise<PatientKTPData> {
+  const res = await fetchWithHandling('/api/patients/me/ktp', { method: 'GET', signal: signal ?? AbortSignal.timeout(15000), headers: { Accept: 'application/json' } })
+  const data = await res.json()
+  if (!data?.ktp || typeof data.ktp.id !== 'number') throw new ApiError(500, 'Respons data KTP tidak sesuai.')
+  return data.ktp as PatientKTPData
+}
+
+export async function apiGetPatientKTPPhoto(signal?: AbortSignal): Promise<Blob> {
+  const res = await fetchWithHandling('/api/patients/me/ktp/photo', { method: 'GET', signal: signal ?? AbortSignal.timeout(20000) })
+  return res.blob()
+}
+
+export async function apiCreatePatientKTP(data: CreatePatientKTPPayload, photo: File): Promise<void> {
+  const form = new FormData()
+  form.append('data', JSON.stringify(data))
+  form.append('photo', photo)
+  const res = await fetchWithHandling('/api/patients/me/ktp', { method: 'POST', signal: AbortSignal.timeout(30000), headers: { Accept: 'application/json' }, body: form })
+  await res.json().catch(() => null)
+}
