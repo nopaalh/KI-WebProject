@@ -8,8 +8,11 @@
   let { user, onSwitchAccount }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; onSwitchAccount: () => void } = $props()
   type Page = 'documents' | 'profile' | 'records'
   const pages: { id: Page; label: string }[] = [{ id: 'documents', label: 'Dokumen' }, { id: 'profile', label: 'Profil pasien' }, { id: 'records', label: 'Rekam medis' }]
+  const notifications = exampleMedicalRecords.slice(0, 2)
   let page = $state<Page>('documents')
   let recordId = $state<number | null>(null)
+  let unread = $state(notifications.map(item => item.id))
+  let notificationDialog = $state<HTMLDialogElement>()
   let content = $state<HTMLDivElement>()
 
   async function navigate(next: Page, id: number | null = null) {
@@ -24,6 +27,11 @@
     window.scrollTo({ top: 0 })
   }
 
+  function openNotification(id: number) {
+    unread = unread.filter(item => item !== id)
+    notificationDialog?.close()
+    void navigate('records', id)
+  }
 </script>
 
 <svelte:head><title>{pages.find(item => item.id === page)?.label} · Portal Pasien</title></svelte:head>
@@ -31,6 +39,7 @@
 <header class="topbar">
   <button class="wordmark" type="button" onclick={() => navigate('documents')} aria-label="Portal Pasien, buka dokumen"><img src="/images/portal-mark.svg" alt="" width="34" height="34" /><span>Portal Pasien<span class="wordmark-caption">Ruang kesehatan Anda</span></span></button>
   <div class="portal-actions">
+    <button class="notification-button" type="button" onclick={() => { notificationDialog?.showModal() }} aria-label={`Notifikasi, ${unread.length} belum dibaca`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3Zm5 4h4" /></svg><span class="notification-text">Notifikasi</span>{#if unread.length}<span class="notification-count">{unread.length}</span>{/if}</button>
 <span class="account-hint">{user.name}</span><button class="back" type="button" onclick={onSwitchAccount}>Ganti akun</button>
   </div>
 </header>
@@ -43,6 +52,12 @@
   <div hidden={page !== 'records'}>{#key recordId}<MedicalRecords records={exampleMedicalRecords} bind:selectedId={recordId} />{/key}</div>
 </div>
 
+<dialog class="notification-dialog" bind:this={notificationDialog} aria-labelledby="notifications-title">
+  <form method="dialog" class="dialog-close"><button class="text-button" type="submit">Tutup</button></form>
+  <h2 id="notifications-title">Notifikasi</h2><p class="patient-note">Pembaruan contoh untuk memperlihatkan alur pemeriksaan.</p>
+  <div class="notification-toolbar"><span role="status">{unread.length ? `${unread.length} belum dibaca` : 'Semua pembaruan sudah dibaca'}</span><button class="text-button" type="button" disabled={!unread.length} onclick={() => unread = []}>Tandai semua dibaca</button></div>
+  <ul class="notification-list">{#each notifications as item}<li><button type="button" class:unread={unread.includes(item.id)} aria-label={`Buka pembaruan ${item.title}`} onclick={() => openNotification(item.id)}><span class="notification-dot" aria-hidden="true"></span><span><strong>{item.title}</strong><span>{item.versions[0]?.summary}</span><small>{item.versions[0]?.date}</small></span></button></li>{/each}</ul>
+</dialog>
 
 
 <style>
