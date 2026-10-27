@@ -2,8 +2,8 @@ package services
 
 import (
 	"errors"
+
 	"project1/models"
-	"project1/repositories"
 	"project1/utils"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,11 +13,17 @@ import (
 var ErrUsernameExist = errors.New("username already exist")
 var InvalidCredentials = errors.New("Invalid password or username")
 
-type AuthService struct {
-	UserRepo *repositories.UserRepository
+type userRepository interface {
+	Create(*models.User) error
+	FindByUsername(string) (*models.User, error)
+	FindByID(uint) (*models.User, error)
 }
 
-func NewAuthService(userRepo *repositories.UserRepository) *AuthService {
+type AuthService struct {
+	UserRepo userRepository
+}
+
+func NewAuthService(userRepo userRepository) *AuthService {
 	return &AuthService{
 		UserRepo: userRepo,
 	}
@@ -43,6 +49,7 @@ func (s *AuthService) Register(name string, username string, password string) er
 		Name:         name,
 		Username:     username,
 		PasswordHash: string(passwordHash),
+		Role:         models.RolePatient,
 	}
 
 	return s.UserRepo.Create(&user)
@@ -69,6 +76,10 @@ func (s *AuthService) Login(username string, password string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func (s *AuthService) CurrentUser(userID uint) (*models.User, error) {
+	return s.UserRepo.FindByID(userID)
 }
 
 func (s *AuthService) ValidateToken(tokenString string) (jwt.MapClaims, error) {

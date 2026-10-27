@@ -1,0 +1,93 @@
+name: Enable PR auto-merge
+
+# This privileged workflow must never check out or execute code from a PR.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Existing PR number to enable auto-merge for
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable:
+    name: Enable protected auto-merge
+    if: vars.AUTO_MERGE_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const number = context.eventName === 'workflow_dispatch'
+              ? Number(context.payload.inputs.pr_number)
+              : context.payload.pull_request.number;
+            if (!Number.isSafeInteger(number) || number <= 0) {
+              throw new Error('Invalid PR number.');
+            }
+
+            const result = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  autoMergeAllowed
+                  squashMergeAllowed
+                  pullRequest(number: $number) {
+                    id state isDraft baseRefName headRefOid autoMergeRequest { enabledAt }
+                    headRepository { nameWithOwner }
+                    baseRef {
+                      branchProtectionRule {
+                        requiresApprovingReviews
+                        requiredApprovingReviewCount
+                        requiresStatusChecks
+                        requiredStatusCheckContexts
+                      }
+                    }
+                  }
+                }
+              }
+            `, { owner, repo, number });
+            const repository = result.repository;
+            const pr = repository.pullRequest;
+            if (!pr || pr.state !== 'OPEN' || pr.isDraft || pr.baseRefName !== 'main') {
+              core.info('Skipping: PR must be open, ready for review, and target main.');
+              return;
+            }
+            if (pr.headRepository?.nameWithOwner !== `${owner}/${repo}`) {
+              core.info('Skipping fork PR: auto-merge is limited to shared-repo branches.');
+              return;
+            }
+            if (!repository.autoMergeAllowed || !repository.squashMergeAllowed) {
+              throw new Error('Enable Allow auto-merge and Allow squash merging in repository settings.');
+            }
+
+            // Fail closed: do not let enabling auto-merge immediately merge an unprotected PR.
+            // This setup deliberately requires a classic branch protection rule, not only rulesets.
+            const rule = pr.baseRef?.branchProtectionRule;
+            const requiredChecks = ['Backend checks'];
+            if (!rule?.requiresApprovingReviews || rule.requiredApprovingReviewCount < 1 ||
+                !rule.requiresStatusChecks ||
+                !requiredChecks.every(name => rule.requiredStatusCheckContexts.includes(name))) {
+              throw new Error('Protect main with at least one required approval and the Backend checks required CI check first.');
+            }
+            if (pr.autoMergeRequest) {
+              core.info('Auto-merge is already enabled.');
+              return;
+            }
+            await github.graphql(`
+              mutation($id: ID!, $head: GitObjectID!) {
+                enablePullRequestAutoMerge(input: {
+                  pullRequestId: $id,
+                  expectedHeadOid: $head,
+                  mergeMethod: SQUASH
+                }) { pullRequest { number } }
+              }
+            `, { id: pr.id, head: pr.headRefOid });
+            core.info(`Auto-merge enabled for PR #${number}; GitHub enforces the branch requirements.`);
