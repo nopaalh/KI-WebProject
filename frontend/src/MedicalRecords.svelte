@@ -4,14 +4,16 @@
   let { records, selectedId = $bindable<number | null>(null) }: { records: MedicalRecord[]; selectedId?: number | null } = $props()
   let filter = $state('Semua')
   let search = $state('')
+  let revision = $state<number | null>(null)
   const record = $derived(records.find(item => item.id === selectedId))
-  const version = $derived(record?.versions[0])
+  const version = $derived(record?.versions.find(item => item.version === revision) ?? record?.versions[0])
   const filtered = $derived(records.filter(item =>
     (filter === 'Semua' || item.versions[0]?.status === filter) &&
     `${item.title} ${item.department}`.toLowerCase().includes(search.toLowerCase().trim()),
   ))
 
   function openRecord(id: number) {
+    revision = null
     selectedId = id
   }
 </script>
@@ -23,11 +25,20 @@
     <div class="record-layout">
       <section class="patient-card medical-note" aria-labelledby="note-title">
         <div class="note-header"><h2 id="note-title">Catatan pemeriksaan</h2><span class="example-label">Data contoh</span></div>
+        {#if version.version !== record.versions[0]?.version}<div class="version-banner" role="status">Anda sedang membaca versi terdahulu. <button class="text-button" type="button" onclick={() => revision = null}>Lihat versi terbaru</button></div>{/if}
         <dl class="record-metadata"><div><dt>Ditulis oleh</dt><dd>{version.author}</dd></div><div><dt>Terakhir diperbarui</dt><dd>{version.date}</dd></div></dl>
         <h3>{version.summary}</h3><p class="note-content">{version.note}</p>
         <div class="record-explanation">{version.status === 'Draf' ? 'Catatan masih disusun oleh dokter dan dapat berubah. Anda dapat melihat pembaruannya di halaman ini.' : 'Catatan ini sudah ditandai final oleh dokter.'}</div>
         <p class="patient-note">Rekam medis hanya dapat diperbarui oleh pihak rumah sakit. Data yang ditampilkan di sini adalah contoh, bukan hasil pemeriksaan Anda.</p>
       </section>
+      <aside class="patient-card history-panel" aria-labelledby="history-title">
+        <h2 id="history-title">Riwayat perubahan</h2><p>Setiap catatan memiliki penulis dan waktu pembaruan.</p>
+        <ol class="history-list">
+          {#each record.versions as item}
+            <li><button type="button" class:active={item.version === version.version} aria-pressed={item.version === version.version} onclick={() => revision = item.version}><span class="version-name">Versi {item.version}{#if item.version === record.versions[0]?.version}<span>Terbaru</span>{/if}</span><span class="version-date">{item.date}</span><span class="version-author">{item.author}</span><span class="version-summary">{item.summary}</span></button></li>
+          {/each}
+        </ol>
+      </aside>
     </div>
   {:else}
     <header class="patient-heading"><h1 class="patient-title" tabindex="-1">Rekam medis</h1><p class="patient-subtitle">Ikuti perkembangan pemeriksaan dan baca catatan dari dokter.</p></header>
@@ -51,7 +62,7 @@
   .record-title { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
   .record-status { flex-shrink: 0; display: inline-block; padding: 6px 12px; border: 1px solid #d8dfe6; border-radius: 8px; background: #f5f7f8; font-size: 11px; font-weight: 500; }
   .record-status.draft { background: #eef5ff; color: #0069d4; border-color: #d3e4fa; }
-  .record-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+  .record-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
   .medical-note, .history-panel { padding: 30px; }
   .note-header, .records-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
   h2 { margin: 0; font-size: 20px; font-weight: 550; letter-spacing: -.5px; }
