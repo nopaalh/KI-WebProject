@@ -149,3 +149,22 @@ fieldset:disabled { opacity: .55; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
+
+.patient-page { display: block; width: calc(100% - 80px); max-width: 1280px; margin: 0 auto; padding: 50px 0 80px; }
+.patient-heading { margin-bottom: 34px; }
+.patient-title { margin: 0; font-size: clamp(30px, 4vw, 44px); line-height: 1.25; font-weight: 550; letter-spacing: -1.4px; overflow-wrap: anywhere; }
+.patient-subtitle { margin: 14px 0 0; font-size: 14px; line-height: 1.8; }
+.patient-card { min-width: 0; border: 1px solid #d1d8e0; border-radius: 22px; background: #fff; }
+.patient-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 11px 22px; border: 1px solid #0071e3; border-radius: 100px; background: #0071e3; color: #fff; font-size: 12px; font-weight: 500; transition: background 180ms, transform 180ms; }
+.patient-button:hover { background: #0064cb; }
+.patient-button:active { transform: scale(.98); }
+.patient-button.secondary { color: #111; background: #fff; border-color: #d1d8e0; }
+.patient-button.secondary:hover { background: #f3f6fa; }
+.patient-button:disabled { background: #edf0f4; border-color: #e1e6ec; color: #111; }
+.patient-note { margin: 20px 0 0; font-size: 11px; line-height: 1.8; }
+.patient-message { padding: 16px; margin: 24px 0 0; border: 1px solid #d5e4f8; border-radius: 12px; background: #f2f7ff; font-size: 12px; line-height: 1.8; }
+.patient-message:empty { display: none; }
+.text-button { min-height: 36px; padding: 5px 0; border: 0; background: none; color: #0071e3; font-size: 12px; }
+.text-button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.text-button:disabled { color: #111; opacity: .6; text-decoration: none; }
+@media (max-width: 680px) { .patient-page { width: calc(100% - 40px); padding-top: 36px; } .patient-subtitle { font-size: 13px; } }

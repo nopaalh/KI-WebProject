@@ -1,34 +1,28 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import DocumentPreview from './DocumentPreview.svelte'
+  import { exampleDocuments, type DocumentCategory, type PatientDocument } from './patientExamples'
 
-  let { user }: { user: { name: string; username: string; role: 'patient' | 'doctor' } } = $props()
+  let { user, files = exampleDocuments }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; files?: PatientDocument[] } = $props()
 
-  type Category = 'Semua' | 'Dokumen' | 'Foto' | 'Video'
-  type Document = { name: string; kind: string; category: Category; size: number; selected?: boolean }
   const illustratedKinds = ['PDF', 'DOCX', 'PNG', 'MP4']
-  const categories: Category[] = ['Semua', 'Dokumen', 'Foto', 'Video']
-  const examples: Document[] = [
-    { name: 'Kartu identitas.pdf', kind: 'PDF', category: 'Dokumen', size: 245760 },
-    { name: 'Formulir pendaftaran.docx', kind: 'DOCX', category: 'Dokumen', size: 86016 },
-    { name: 'Foto kartu BPJS.png', kind: 'PNG', category: 'Foto', size: 1258291 },
-    { name: 'Video keluhan.mp4', kind: 'MP4', category: 'Video', size: 5662310 },
-  ]
-  let category = $state<Category>('Semua')
+  const categories: DocumentCategory[] = ['Semua', 'Dokumen', 'Foto', 'Video']
+  let category = $state<DocumentCategory>('Semua')
   let search = $state('')
   let selectedFile = $state<File | null>(null)
   let fileInput = $state<HTMLInputElement>()
   let dialog = $state<HTMLDialogElement>()
-  let detail = $state<Document | null>(null)
+  let detail = $state<PatientDocument | null>(null)
   let notice = $state('')
   const documents = $derived([
     ...(selectedFile ? [{
       name: selectedFile.name,
       kind: selectedFile.name.split('.').pop()?.toUpperCase().slice(0, 8) || 'FILE',
-      category: (selectedFile.type.startsWith('image/') ? 'Foto' : selectedFile.type.startsWith('video/') ? 'Video' : 'Dokumen') as Category,
+      category: (selectedFile.type.startsWith('image/') ? 'Foto' : selectedFile.type.startsWith('video/') ? 'Video' : 'Dokumen') as DocumentCategory,
       size: selectedFile.size,
       selected: true,
     }] : []),
-    ...examples,
+    ...files,
   ])
   const filtered = $derived(documents.filter(file =>
     (category === 'Semua' || file.category === category) && file.name.toLowerCase().includes(search.toLowerCase().trim()),
@@ -61,7 +55,7 @@
     if (fileInput) fileInput.value = ''
   }
 
-  async function showDetail(file: Document) {
+  async function showDetail(file: PatientDocument) {
     detail = file
     await tick()
     dialog?.showModal()
@@ -71,7 +65,7 @@
 <main class="dashboard">
   <header class="welcome">
     <div>
-      <h1>Halo, {firstName}.</h1>
+      <h1 tabindex="-1">Halo, {firstName}.</h1>
       <p class="welcome-copy">Lengkapi dan lihat dokumen untuk keperluan perawatan Anda.</p>
     </div>
   </header>
@@ -152,7 +146,7 @@
   </div>
 </main>
 
-<dialog bind:this={dialog} aria-labelledby="detail-title">
+<dialog bind:this={dialog} aria-labelledby="detail-title" onclose={() => detail = null}>
   {#if detail}
     <form method="dialog"><button class="close-dialog" aria-label="Tutup detail" type="submit">Tutup</button></form>
     {#if illustratedKinds.includes(detail.kind)}
@@ -163,8 +157,7 @@
     <h2 id="detail-title">{detail.name}</h2>
     <p class="dialog-caption">{detail.selected ? 'Dokumen ini belum diunggah.' : 'Dokumen contoh.'}</p>
     <dl><div><dt>Jenis</dt><dd>{detail.category}</dd></div><div><dt>Ukuran</dt><dd>{formatSize(detail.size)}</dd></div><div><dt>Status</dt><dd>{detail.selected ? 'Belum diunggah' : 'Contoh dokumen'}</dd></div></dl>
-    <button class="download-button" type="button" disabled>Unduh dokumen</button>
-    <p class="download-note">{detail.selected ? 'Dokumen belum tersedia untuk diunduh.' : 'Dokumen contoh tidak dapat diunduh.'}</p>
+    <DocumentPreview file={detail} localFile={detail.selected ? selectedFile : null} />
   {/if}
 </dialog>
 
@@ -194,11 +187,10 @@
   .upload-panel h2 { max-width: 190px; margin: 0 auto; font-size: 21px; font-weight: 550; line-height: 1.3; letter-spacing: -.6px; text-wrap: balance; }
   .upload-panel > p { margin: 12px auto 22px; max-width: 210px; font-size: 12px; line-height: 1.7; text-wrap: pretty; }
   .file-input { display: none; }
-  .choose-file, .download-button { min-height: 44px; padding: 11px 24px; border: 0; border-radius: 100px; color: #fff; background: #0071e3; font-size: 12px; font-weight: 500; transition: background 200ms, transform 200ms; }
+  .choose-file { min-height: 44px; padding: 11px 24px; border: 0; border-radius: 100px; color: #fff; background: #0071e3; font-size: 12px; font-weight: 500; transition: background 200ms, transform 200ms; }
   .choose-file { min-width: 136px; max-width: 100%; }
   .choose-file:hover { background: #0064cb; }
   .choose-file:active { transform: scale(.97); }
-  .download-button { width: 100%; }
   .file-limit { display: block; font-size: 10px; margin-top: 13px; }
   .selected-file { display: grid; justify-items: center; gap: 8px; margin-top: 22px; font-size: 12px; }
   .selected-file > span { max-width: 100%; overflow-wrap: anywhere; }
@@ -243,7 +235,7 @@
   .empty-state { text-align: center; padding: 56px 20px; }
   .empty-state p { margin: 0 0 12px; font-size: 13px; }
   .empty-state button { border: 0; padding: 6px; background: none; color: #0071e3; font-size: 12px; }
-  dialog { width: calc(100% - 40px); max-width: 420px; max-height: calc(100svh - 40px); padding: 28px; border: 1px solid #d1d8e0; border-radius: 22px; color: #111; background: #fff; box-shadow: 0 24px 100px #101e3826; }
+  dialog { width: calc(100% - 40px); max-width: 760px; max-height: calc(100svh - 40px); padding: 28px; border: 1px solid #d1d8e0; border-radius: 22px; color: #111; background: #fff; box-shadow: 0 24px 100px #101e3826; }
   dialog::backdrop { background: #111b3038; backdrop-filter: blur(5px); }
   dialog form { display: flex; justify-content: flex-end; margin-bottom: 16px; }
   .close-dialog { min-height: 36px; padding: 7px 12px; border: 1px solid #d1d8e0; border-radius: 20px; background: #fff; font-size: 11px; }
@@ -251,12 +243,11 @@
   .detail-illustration { width: 82px; height: 96px; margin-bottom: 18px; }
   dialog h2 { font-size: 24px; overflow-wrap: anywhere; }
   .dialog-caption { font-size: 12px; margin: 12px 0 0; }
-  dialog dl { padding-top: 20px; border-top: 1px solid #d1d8e0; }
-  dialog dl > div { display: flex; gap: 20px; justify-content: space-between; }
+  dialog dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding-top: 20px; border-top: 1px solid #d1d8e0; }
+  dialog dl > div { min-width: 0; }
+  dialog dl > div + div { margin-top: 0; }
   dialog dt { margin: 0; }
-  dialog dd { text-align: right; font-size: 12px; }
-  .download-button { margin-top: 28px; background: #edf0f4; color: #111; }
-  .download-note { font-size: 10px; text-align: center; margin: 10px 0 0; }
+  dialog dd { margin-top: 8px; text-align: left; font-size: 12px; }
   @media (max-width: 1000px) {
     .dashboard-layout { grid-template-columns: 240px minmax(0, 1fr); gap: 20px; }
     .account-panel { padding: 24px; }
