@@ -45,8 +45,10 @@ func TestPatientProfileCreateBindsEncryptedFieldsAndUserID(t *testing.T) {
 		Age:           30,
 		NIKAES:        []byte{0x00, 0xff, 0x01},
 		NIKDES:        []byte{0x02, 0xfe, 0x00},
+		NIKRC4:        []byte{0x05, 0xfb, 0x00},
 		BPJSNumberAES: []byte{0x03, 0xfd, 0x00},
 		BPJSNumberDES: []byte{0x00, 0xfc, 0x04},
+		BPJSNumberRC4: []byte{0x00, 0xfa, 0x06},
 		KTP:           &models.PatientKTP{},
 	}
 	var query string
@@ -72,11 +74,11 @@ func TestPatientProfileCreateBindsEncryptedFieldsAndUserID(t *testing.T) {
 	}
 	wantArgs := []any{
 		uint(7), "patient", float64(65.5), float64(170.5), 30,
-		profile.NIKAES, profile.NIKDES, []byte(nil),
-		profile.BPJSNumberAES, profile.BPJSNumberDES, []byte(nil),
+		profile.NIKAES, profile.NIKDES, profile.NIKRC4,
+		profile.BPJSNumberAES, profile.BPJSNumberDES, profile.BPJSNumberRC4,
 	}
 	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("insert must bind authenticated user ID, unchanged ciphertext bytes, and nil RC4 fields: got %#v, want %#v", args, wantArgs)
+		t.Fatalf("insert must bind authenticated user ID, unchanged AES/DES/RC4 ciphertext bytes: got %#v, want %#v", args, wantArgs)
 	}
 }
 
