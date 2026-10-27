@@ -271,7 +271,6 @@ func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.Fi
 	if file.OriginalSize < 0 || file.OriginalSize > MaxFileSize {
 		return nil, nil, ErrFileIntegrity
 	}
-	ciphers := s.ciphers
 	// An explicit version prevents missing paths in new uploads from enabling legacy fallback.
 	switch file.CipherSetVersion {
 	case 0:
@@ -281,34 +280,31 @@ func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.Fi
 		if algorithm != "aes" {
 			return nil, nil, ErrFileCipherUnavailable
 		}
-		ciphers = ciphers[:1]
 	case 1:
-		// All three representations are mandatory, including for the default AES download.
+		// All three representations must be recorded, including for the default AES download, but only the
+		// selected one is read and decrypted so the request time reflects that single cipher.
+		if file.AESPath == "" || file.DESPath == "" || file.RC4Path == "" {
+			return nil, nil, ErrFileIntegrity
+		}
 	default:
 		return nil, nil, ErrFileIntegrity
 	}
-	var plaintext []byte
-	var selectedDuration int64
-	for i, cipher := range ciphers {
-		path, _, _ := fileCipherFields(file, cipher.name)
-		encrypted, err := s.readCiphertext(*path, cipher.name)
-		if err != nil {
-			return nil, nil, err
+	var selected *fileCipher
+	for i := range s.ciphers {
+		if s.ciphers[i].name == algorithm {
+			selected = &s.ciphers[i]
 		}
-		start := time.Now()
-		decoded, err := cipher.decrypt(encrypted, s.key)
-		duration := time.Since(start).Nanoseconds()
-		if err != nil || int64(len(decoded)) != file.OriginalSize {
-			return nil, nil, ErrFileIntegrity
-		}
-		if i == 0 {
-			plaintext = decoded
-		} else if !bytes.Equal(decoded, plaintext) {
-			return nil, nil, ErrFileIntegrity
-		}
-		if cipher.name == algorithm {
-			selectedDuration = duration
-		}
+	}
+	path, _, _ := fileCipherFields(file, algorithm)
+	encrypted, err := s.readCiphertext(*path, algorithm)
+	if err != nil {
+		return nil, nil, err
+	}
+	start := time.Now()
+	plaintext, err := selected.decrypt(encrypted, s.key)
+	selectedDuration := time.Since(start).Nanoseconds()
+	if err != nil || int64(len(plaintext)) != file.OriginalSize {
+		return nil, nil, ErrFileIntegrity
 	}
 	if err := s.fileRepo.UpdateDecryptTime(file.ID, actor.ID, actor.Role, algorithm, selectedDuration); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

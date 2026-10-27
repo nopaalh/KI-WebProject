@@ -47,7 +47,13 @@ func TestFileRoutesDecryptEachCipherAndPreserveOwnership(t *testing.T) {
 	if err := os.Remove(stored.RC4Path); err != nil {
 		t.Fatal(err)
 	}
+	// Only the selected ciphertext is read, so losing the RC4 copy fails the RC4 download but not the AES one.
 	path := fmt.Sprintf("/api/files/%d/decrypt?algorithm=aes", metadata.ID)
+	response = fileRouteRequest(fixture.router, http.MethodPost, path, fixture.token, "", nil)
+	if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), plaintext) {
+		t.Fatalf("AES download must not depend on the RC4 copy: %d", response.Code)
+	}
+	path = fmt.Sprintf("/api/files/%d/decrypt?algorithm=rc4", metadata.ID)
 	response = fileRouteRequest(fixture.router, http.MethodPost, path, fixture.token, "", nil)
 	assertFileRouteError(t, response, 500, "Failed to process file")
 }

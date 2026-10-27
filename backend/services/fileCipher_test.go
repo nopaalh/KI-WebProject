@@ -104,9 +104,9 @@ func TestFileUploadRollsBackOnEveryCipherFailure(t *testing.T) {
 	}
 }
 
-func TestTripleCipherDownloadRejectsIncompleteOrDamagedSet(t *testing.T) {
+func TestFileDownloadRejectsDamagedSelectedCiphertext(t *testing.T) {
 	for _, algorithm := range []string{"aes", "des", "rc4"} {
-		for _, damage := range []string{"tamper", "missing file", "missing path", "symlink", "different plaintext"} {
+		for _, damage := range []string{"tamper", "missing file", "symlink", "different size"} {
 			t.Run(algorithm+damage, func(t *testing.T) {
 				s, repo, _ := newTestFileService(t)
 				file, err := s.Upload(7, uploadHeader(t, "private.bin", []byte("original bytes")))
@@ -130,16 +130,14 @@ func TestTripleCipherDownloadRejectsIncompleteOrDamagedSet(t *testing.T) {
 					}
 					if damage == "symlink" {
 						if err := os.Symlink(filepath.Join(t.TempDir(), "outside.bin"), *path); err != nil {
-							t.Fatal(err)
+							t.Skipf("symlinks are unavailable here: %v", err)
 						}
 					}
-				case "missing path":
-					*path = ""
-					repo.files[file.ID] = *file
-				case "different plaintext":
+				case "different size":
+					// A genuine envelope of other data passes the MAC but not the recorded plaintext size.
 					for _, cipher := range s.ciphers {
 						if cipher.name == algorithm {
-							data, err := cipher.encrypt([]byte("different data"), s.key)
+							data, err := cipher.encrypt([]byte("a longer replacement payload"), s.key)
 							if err != nil {
 								t.Fatal(err)
 							}
@@ -149,13 +147,82 @@ func TestTripleCipherDownloadRejectsIncompleteOrDamagedSet(t *testing.T) {
 						}
 					}
 				}
-				// Even an AES download must fail if its DES or RC4 companion is invalid.
-				_, plaintext, err := s.Decrypt(7, file.ID, "aes")
+				_, plaintext, err := s.Decrypt(7, file.ID, algorithm)
 				if !errors.Is(err, ErrFileIntegrity) || plaintext != nil || repo.updates != 0 {
-					t.Fatalf("damaged set must fail before returning data/updating timing: %v", err)
+					t.Fatalf("damaged selected ciphertext must fail before returning data/updating timing: %v", err)
 				}
 			})
 		}
+	}
+}
+
+func TestFileDownloadRejectsVersionOneRecordWithMissingPath(t *testing.T) {
+	for _, missing := range []string{"aes", "des", "rc4"} {
+		for _, algorithm := range []string{"aes", "des", "rc4"} {
+			t.Run("missing "+missing+" download "+algorithm, func(t *testing.T) {
+				s, repo, _ := newTestFileService(t)
+				file, err := s.Upload(7, uploadHeader(t, "private.bin", []byte("original bytes")))
+				if err != nil {
+					t.Fatal(err)
+				}
+				path, _, _ := fileCipherFields(file, missing)
+				*path = ""
+				repo.files[file.ID] = *file
+				if _, plaintext, err := s.Decrypt(7, file.ID, algorithm); !errors.Is(err, ErrFileIntegrity) || plaintext != nil || repo.updates != 0 {
+					t.Fatalf("a version-1 record must keep all three paths: %v", err)
+				}
+			})
+		}
+	}
+}
+
+// Download time must reflect one cipher: only the selected envelope is decrypted, so a damaged companion
+// does not block it, while that companion's own download still fails.
+func TestFileDownloadDecryptsOnlySelectedCipher(t *testing.T) {
+	plaintext := []byte("original bytes")
+	for _, selected := range []string{"aes", "des", "rc4"} {
+		t.Run(selected, func(t *testing.T) {
+			s, _, _ := newTestFileService(t)
+			file, err := s.Upload(7, uploadHeader(t, "private.bin", plaintext))
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := map[string]int{}
+			for i := range s.ciphers {
+				name, inner := s.ciphers[i].name, s.ciphers[i].decrypt
+				s.ciphers[i].decrypt = func(data []byte, key [32]byte) ([]byte, error) {
+					calls[name]++
+					return inner(data, key)
+				}
+			}
+			if _, got, err := s.Decrypt(7, file.ID, selected); err != nil || !bytes.Equal(got, plaintext) {
+				t.Fatalf("%s download failed: %v", selected, err)
+			}
+			if len(calls) != 1 || calls[selected] != 1 {
+				t.Fatalf("only %s should be decrypted once, got %v", selected, calls)
+			}
+
+			for _, other := range []string{"aes", "des", "rc4"} {
+				if other == selected {
+					continue
+				}
+				path, _, _ := fileCipherFields(file, other)
+				data, err := os.ReadFile(*path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data[len(data)-1] ^= 1
+				if err := os.WriteFile(*path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, got, err := s.Decrypt(7, file.ID, selected); err != nil || !bytes.Equal(got, plaintext) {
+					t.Fatalf("damaged %s must not block the %s download: %v", other, selected, err)
+				}
+				if _, got, err := s.Decrypt(7, file.ID, other); !errors.Is(err, ErrFileIntegrity) || got != nil {
+					t.Fatalf("damaged %s must fail its own download: %v", other, err)
+				}
+			}
+		})
 	}
 }
 

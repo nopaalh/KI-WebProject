@@ -29,7 +29,7 @@ Status diperbarui terhadap `main` pada `57d06b2` (2026-10-27) berdasarkan kode d
 | AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
 | Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
 | Batas upload | Saat ini 8 MiB; bukan 25 MiB |
-| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download memeriksa seluruh set, selector algorithm memilih timing yang dilaporkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
+| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download hanya membaca dan mendekripsi cipher yang dipilih lewat `?algorithm=aes|des|rc4` (HMAC dan ukuran plaintext diperiksa), sehingga waktu tiap cipher dapat dibandingkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
 | Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
 | Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
 | Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |
@@ -46,7 +46,7 @@ Perubahan lokal role menyediakan fondasi identitas saja, **belum RBAC rumah saki
 | Rekam medis, draf/final, version history | Belum ada model maupun endpoint |
 | Frontend (Svelte) | Login, registrasi, sesi dan role; fitur lain belum diverifikasi dalam pembaruan ini |
 | CI | `go test -race ./...` dan cek frontend pada PR ([CI.md](CI.md)) |
-| Pengukuran makro dan analisis ciphertext | Belum; pembacaan profil/KTP mendekripsi ketiga cipher sekaligus dan belum ada pilihan `?algorithm=` |
+| Pengukuran makro dan analisis ciphertext | Selesai: [benchmark.txt](benchmark.txt) (mikro), [ciphertext-analysis.txt](ciphertext-analysis.txt), dan [macro-benchmark.txt](macro-benchmark.txt) (HTTP, per cipher). Pembacaan profil/KTP tetap mendekripsi ketiga cipher sekaligus; download file mendekripsi cipher pilihan saja |
 | Perlindungan seluruh data sensitif dengan tiga cipher | **Belum terpenuhi:** file umum masih AES, `User.Name` dan nama file masih plaintext, serta pengecualian profil di bagian 6 |
 
 Role baru menyediakan fondasi identitas, **belum RBAC rumah sakit lengkap**: semua endpoint pasien dan file masih berbasis pemilik. Kolom role dibuat lewat `AutoMigrate` pada model `User` dan juga tersedia sebagai migration SQL. Empat migration (`000001` timing AES, `000002` role, `000003` profil pasien, `000004` KTP) ada di `backend/migrations/`; urutan terapkan dan rollback ada di README folder itu.
@@ -261,6 +261,8 @@ Search/filter, statistik dashboard, preview media, delete, dan halaman benchmark
 - Cipher buatan tangan harus diverifikasi dengan test vector tepercaya dan pembanding library yang sesuai; seluruh jalur perlu diuji round-trip dan penolakan manipulasi.
 
 ## 12. Permintaan Kamal (BE-2) untuk nopaalh (BE-1)
+
+> **Status 2026-10-27 malam:** permintaan 1-3 sudah dikerjakan (upload tiga cipher, `?algorithm=`, field timing DES/RC4; migration `000005`-`000007`). Download kini hanya mendekripsi cipher pilihan (PR #27), dan pengukuran makro per cipher sudah ada di [macro-benchmark.txt](macro-benchmark.txt). Yang tersisa hanya keputusan target waktu upload dan batas video (permintaan 4). Teks di bawah dipertahankan sebagai catatan permintaan awal.
 
 Dibuat 2026-10-27 setelah `main` di `57d06b2`. Tujuannya satu: evaluasi tiga cipher yang diminta soal (waktu dan ciphertext, unduh berulang) baru bisa lengkap kalau file umum juga disimpan dan dibaca per cipher. Semua poin di bawah mengikuti keputusan yang sudah ada; tidak ada perubahan format envelope.
 
