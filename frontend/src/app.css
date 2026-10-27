@@ -84,6 +84,10 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center; just
 .back:disabled { opacity: .5; }
 .auth { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 24px 0; overflow-wrap: anywhere; animation: form-in 650ms cubic-bezier(.2,.7,.2,1) both; }
 .form-heading { margin-bottom: 36px; }
+.profile { margin: 0; }
+.profile > div { padding: 18px 0; border-bottom: 1px solid #dfe5df; }
+.profile dt { font-size: 14px; }
+.profile dd { margin: 6px 0 0; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
 .auth h2 { margin: 0; font-size: 56px; font-weight: 600; letter-spacing: -1.8px; line-height: 1.1; color: #111111; }
 fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
 .field + .field { margin-top: 26px; }

@@ -10,7 +10,8 @@
     "dev": "vite",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:api": "node scripts/check-auth.mjs"
   },
   "dependencies": {
     "svelte": "^5.57.3"

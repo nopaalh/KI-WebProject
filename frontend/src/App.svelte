@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
 
   type Role = 'patient' | 'doctor'
+  type CurrentUser = { id: number; name: string; username: string; role: Role }
   const characters: { role: Role; label: string }[] = [
     { role: 'patient', label: 'Pasien' },
     { role: 'doctor', label: 'Dokter' },
@@ -14,13 +15,42 @@
   let username = $state('')
   let password = $state('')
   let visiblePassword = $state(false)
-  let pending = $state(false)
+  let pending = $state(true)
+  let currentUser = $state<CurrentUser | null>(null)
   let feedback = $state('')
   let success = $state(false)
   let form = $state<HTMLFormElement>()
   let animationTimer: ReturnType<typeof setTimeout> | undefined
 
   onDestroy(() => clearTimeout(animationTimer))
+
+  onMount(() => {
+    const controller = new AbortController()
+    void loadCurrentUser(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])).catch(() => {
+      // A missing/expired session leaves the normal login screen available.
+    }).finally(() => { pending = false })
+    return () => controller.abort()
+  })
+
+  async function loadCurrentUser(signal = AbortSignal.timeout(15000)) {
+    const response = await fetch('/api/users/me', {
+      credentials: 'include', cache: 'no-store', signal,
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error('Unable to load current user')
+    const user = await response.json()
+    if (!Number.isInteger(user?.id) || user.id <= 0 ||
+        typeof user.name !== 'string' || typeof user.username !== 'string' ||
+        (user.role !== 'patient' && user.role !== 'doctor')) {
+      throw new Error('Invalid current user response')
+    }
+    currentUser = user
+    selected = user.role
+    username = user.username
+    hovered = null
+    mode = 'login'
+    phase = 'form'
+  }
 
   function choose(role: Role) {
     if (phase !== 'choose' || pending) return
@@ -38,6 +68,7 @@
   function reset() {
     if (pending) return
     clearTimeout(animationTimer)
+    currentUser = null
     mode = 'login'
     selected = null
     phase = 'choose'
@@ -51,6 +82,7 @@
 
   async function switchMode() {
     if (pending) return
+    currentUser = null
     mode = mode === 'login' ? 'register' : 'login'
     if (mode === 'register') {
       selected = 'patient'
@@ -79,7 +111,7 @@
     }
     pending = true
     try {
-      // Public registration never sends a role; the backend creates a patient.
+      // The backend assigns registration roles; /me is the source of account identity.
       const response = await fetch(`/api/users/${mode}`, {
         method: 'POST',
         credentials: 'include',
@@ -111,8 +143,11 @@
         success = true
         feedback = 'Akun berhasil dibuat. Silakan masuk.'
       } else {
-        success = true
-        feedback = 'Berhasil masuk. Akun Anda sudah terautentikasi.'
+        try {
+          await loadCurrentUser()
+        } catch {
+          feedback = 'Login berhasil, tetapi profil belum dapat dimuat. Silakan coba masuk kembali.'
+        }
       }
     } catch {
       feedback = 'Tidak dapat terhubung ke layanan. Silakan coba lagi.'
@@ -123,7 +158,7 @@
 </script>
 
 <svelte:head>
-  <title>{phase === 'choose' ? 'Portal Pasien' : mode === 'login' ? 'Masuk · Portal Pasien' : 'Daftar · Portal Pasien'}</title>
+  <title>{currentUser ? 'Akun · Portal Pasien' : phase === 'choose' ? 'Portal Pasien' : mode === 'login' ? 'Masuk · Portal Pasien' : 'Daftar · Portal Pasien'}</title>
   <meta name="description" content="Pilih pasien atau dokter untuk melanjutkan ke portal." />
   <link rel="icon" type="image/png" href="/images/portal-mark.png" />
 </svelte:head>
@@ -148,7 +183,7 @@
     <header class="intro">
       <img class="app-logo" src="/images/portal-mark.png" alt="Logo Portal Pasien" width="64" height="64" />
       <h1 class="intro-title">Selamat datang.</h1>
-      <p class="intro-description">{phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
+      <p class="intro-description">{currentUser ? 'Akun Anda telah terhubung.' : phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
       {#if phase === 'choose'}<p class="role-prompt">Masuk sebagai</p>{/if}
     </header>
 
@@ -180,40 +215,49 @@
             </div>
           {:else}
             <section class="auth" aria-labelledby="form-title">
-              <div class="form-heading">
-                <h2 id="form-title">{mode === 'login' ? 'Masuk' : 'Daftar'}</h2>
-              </div>
-              <form bind:this={form} onsubmit={submit} aria-busy={pending}>
-                <fieldset disabled={pending}>
-                  {#if mode === 'register'}
-                    <div class="field">
-                      <label for="name">Nama lengkap</label>
-                      <input id="name" name="name" bind:value={name} autocomplete="name" placeholder="Nama Anda" required />
-                    </div>
-                  {/if}
-                  <div class="field">
-                    <label for="username">Username</label>
-                    <input id="username" name="username" bind:value={username} autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username Anda" required />
-                  </div>
-                  <div class="field">
-                    <label for="password">Password</label>
-                    <div class="password-row">
-                      <input id="password" name="password" type={visiblePassword ? 'text' : 'password'} bind:value={password} autocomplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Password Anda" required />
-                      <button class="eye" type="button" aria-label={visiblePassword ? 'Sembunyikan password' : 'Tampilkan password'} aria-pressed={visiblePassword} onclick={() => visiblePassword = !visiblePassword}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{#if visiblePassword}<path d="m3 3 18 18" />{/if}</svg>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="feedback" aria-live="polite" aria-atomic="true">
-                    {#if feedback}<p class:success>{feedback}</p>{/if}
-                  </div>
-                  <button class="submit" type="submit">{pending ? 'Memproses…' : mode === 'login' ? 'Masuk' : 'Buat akun'}</button>
-                </fieldset>
-              </form>
-              {#if selected === 'doctor'}
-                <p class="switch">Akun dokter disediakan oleh rumah sakit.</p>
+              {#if currentUser}
+                <div class="form-heading"><h2 id="form-title">Anda sudah masuk.</h2></div>
+                <dl class="profile" aria-label="Profil akun">
+                  <div><dt>Nama</dt><dd>{currentUser.name}</dd></div>
+                  <div><dt>Username</dt><dd>{currentUser.username}</dd></div>
+                  <div><dt>Peran</dt><dd>{currentUser.role === 'patient' ? 'Pasien' : 'Dokter'}</dd></div>
+                </dl>
               {:else}
-                <p class="switch">{mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} <button type="button" onclick={switchMode} disabled={pending}>{mode === 'login' ? 'Daftar' : 'Masuk'}</button></p>
+                <div class="form-heading">
+                  <h2 id="form-title">{mode === 'login' ? 'Masuk' : 'Daftar'}</h2>
+                </div>
+                <form bind:this={form} onsubmit={submit} aria-busy={pending}>
+                  <fieldset disabled={pending}>
+                    {#if mode === 'register'}
+                      <div class="field">
+                        <label for="name">Nama lengkap</label>
+                        <input id="name" name="name" bind:value={name} autocomplete="name" placeholder="Nama Anda" required />
+                      </div>
+                    {/if}
+                    <div class="field">
+                      <label for="username">Username</label>
+                      <input id="username" name="username" bind:value={username} autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username Anda" required />
+                    </div>
+                    <div class="field">
+                      <label for="password">Password</label>
+                      <div class="password-row">
+                        <input id="password" name="password" type={visiblePassword ? 'text' : 'password'} bind:value={password} autocomplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Password Anda" required />
+                        <button class="eye" type="button" aria-label={visiblePassword ? 'Sembunyikan password' : 'Tampilkan password'} aria-pressed={visiblePassword} onclick={() => visiblePassword = !visiblePassword}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{#if visiblePassword}<path d="m3 3 18 18" />{/if}</svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="feedback" aria-live="polite" aria-atomic="true">
+                      {#if feedback}<p class:success>{feedback}</p>{/if}
+                    </div>
+                    <button class="submit" type="submit">{pending ? 'Memproses…' : mode === 'login' ? 'Masuk' : 'Buat akun'}</button>
+                  </fieldset>
+                </form>
+                {#if selected === 'doctor'}
+                  <p class="switch">Akun dokter disediakan oleh rumah sakit.</p>
+                {:else}
+                  <p class="switch">{mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} <button type="button" onclick={switchMode} disabled={pending}>{mode === 'login' ? 'Daftar' : 'Masuk'}</button></p>
+                {/if}
               {/if}
             </section>
           {/if}
