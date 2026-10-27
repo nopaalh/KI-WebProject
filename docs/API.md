@@ -14,8 +14,8 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Refresh token dan logout server-side | Belum tersedia |
 | Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
-| Create profil pasien | Tersedia; `POST /api/patients/me/profile`, NIK/BPJS terenkripsi AES + DES, RC4 masih NULL; lihat [PATIENT_PROFILES.md](PATIENT_PROFILES.md) |
-| RC4 / integrasi DES | RC4 belum tersedia; DES tersedia untuk create profil, pipeline file masih AES |
+| Create profil pasien | Tersedia; `POST /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; lihat [PATIENT_PROFILES.md](PATIENT_PROFILES.md) |
+| RC4 / integrasi DES | DES dan RC4 tersedia untuk create profil; pipeline file masih AES |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
 **FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES.** Gunakan hanya endpoint yang tercantum; belum ada endpoint RC4 atau DES. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
@@ -34,7 +34,7 @@ Semua endpoint yang tersedia:
 | --- | --- | --- | --- |
 | `POST` | `/api/users/register` | Tidak diperlukan | Membuat pengguna |
 | `POST` | `/api/users/login` | Tidak diperlukan | Mengatur cookie JWT `access_token` |
-| `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripsi, dan simpan file serta timing |
+| `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripc.PatientProfileCosi, dan simpan file serta timing |
 | `GET` | `/api/files` | Cookie `access_token` | Seluruh metadata file milik pengguna login, urutan ID DESC, tanpa pagination/filter |
 | `GET` | `/api/files/:id` | Cookie `access_token` | Metadata file milik pengguna |
 | `POST` | `/api/files/:id/decrypt` | Cookie `access_token` | Dekripsi dan download byte asli; perbarui timing dekripsi |
