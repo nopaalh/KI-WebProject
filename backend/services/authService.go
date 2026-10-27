@@ -7,6 +7,7 @@ import (
 	"project1/utils"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -30,12 +31,6 @@ func NewAuthService(userRepo userRepository) *AuthService {
 }
 
 func (s *AuthService) Register(name string, username string, password string) error {
-	// 	existingUser, err := s.UserRepo.FindByUsername(username)
-	//
-	// 	if err == nil && existingUser != nil {
-	// 		return fmt.Errorf("%w", ErrUsernameExist)
-	// 	}
-
 	passwordHash, err := bcrypt.GenerateFromPassword(
 		[]byte(password),
 		bcrypt.DefaultCost,
@@ -52,7 +47,12 @@ func (s *AuthService) Register(name string, username string, password string) er
 		Role:         models.RolePatient,
 	}
 
-	return s.UserRepo.Create(&user)
+	err = s.UserRepo.Create(&user)
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		return ErrUsernameExist
+	}
+	return err
 }
 
 func (s *AuthService) Login(username string, password string) (string, error) {

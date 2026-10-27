@@ -24,6 +24,8 @@ func main() {
 	err = config.DB.AutoMigrate(
 		&models.User{},
 		&models.File{},
+		&models.PatientProfile{},
+		&models.PatientKTP{},
 	)
 
 	if err != nil {
