@@ -52,18 +52,19 @@ type KTPPhoto struct {
 	Filename    string
 }
 
-type patientKTPReader interface {
+type patientKTPRepository interface {
+	Create(*models.PatientKTP) error
 	FindByUserID(uint) (*models.PatientKTP, error)
 	FindPhotoByUserID(uint) (*models.PatientKTP, error)
 }
 
 type PatientKTPService struct {
-	ktps     patientKTPReader
+	ktps     patientKTPRepository
 	profiles *PatientProfileService
 	key      [32]byte
 }
 
-func NewPatientKTPService(ktps patientKTPReader, profiles *PatientProfileService, key [32]byte) *PatientKTPService {
+func NewPatientKTPService(ktps patientKTPRepository, profiles *PatientProfileService, key [32]byte) *PatientKTPService {
 	return &PatientKTPService{ktps: ktps, profiles: profiles, key: key}
 }
 

@@ -1,10 +1,16 @@
 package repositories
 
 import (
+	"errors"
+
 	"project1/models"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+var ErrPatientKTPExists = errors.New("patient KTP already exists")
 
 type PatientKTPRepository struct {
 	DB *gorm.DB
@@ -12,6 +18,15 @@ type PatientKTPRepository struct {
 
 func NewPatientKTPRepository(db *gorm.DB) *PatientKTPRepository {
 	return &PatientKTPRepository{DB: db}
+}
+
+func (r *PatientKTPRepository) Create(ktp *models.PatientKTP) error {
+	err := r.DB.Omit(clause.Associations).Create(ktp).Error
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		return ErrPatientKTPExists
+	}
+	return err
 }
 
 func (r *PatientKTPRepository) ownedQuery(userID uint) *gorm.DB {
