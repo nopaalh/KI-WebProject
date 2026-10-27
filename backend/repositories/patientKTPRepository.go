@@ -28,3 +28,15 @@ func (r *PatientKTPRepository) FindByUserID(userID uint) (*models.PatientKTP, er
 	}
 	return &ktp, nil
 }
+
+func (r *PatientKTPRepository) FindPhotoByUserID(userID uint) (*models.PatientKTP, error) {
+	var ktp models.PatientKTP
+	if err := r.ownedQuery(userID).Select(
+		"patient_ktps.id", "patient_ktps.patient_profile_id",
+		"patient_ktps.nik_aes", "patient_ktps.nik_des", "patient_ktps.nik_rc4",
+		"patient_ktps.photo_aes", "patient_ktps.photo_des", "patient_ktps.photo_rc4",
+	).First(&ktp).Error; err != nil {
+		return nil, err
+	}
+	return &ktp, nil
+}

@@ -36,6 +36,50 @@ func TestPatientKTPQueryScopesOwnerAndOmitsPhoto(t *testing.T) {
 	}
 }
 
+func TestPatientKTPPhotoQueryScopesOwnerAndSelectsOnlyNeededFields(t *testing.T) {
+	db := newDryRunPatientProfileRepository(t).DB
+	repo := NewPatientKTPRepository(db)
+	var query string
+	var args []any
+	if err := db.Callback().Query().After("gorm:query").Register("capture_ktp_photo", func(db *gorm.DB) {
+		query = db.Statement.SQL.String()
+		args = append([]any(nil), db.Statement.Vars...)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FindPhotoByUserID(7); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "JOIN patient_profiles ON patient_profiles.id = patient_ktps.patient_profile_id") ||
+		!strings.Contains(query, "patient_profiles.user_id = $1") || len(args) == 0 || args[0] != uint(7) {
+		t.Fatalf("photo query must bind authenticated owner: %s, %v", query, args)
+	}
+	for _, name := range []string{"photo_aes", "photo_des", "photo_rc4", "nik_aes", "nik_des", "nik_rc4"} {
+		if !strings.Contains(query, name) {
+			t.Fatalf("missing photo/NIK column %s: %s", name, query)
+		}
+	}
+	if strings.Contains(query, "full_name_aes") || strings.Contains(query, "address_aes") {
+		t.Fatalf("photo query should not fetch unrelated identity fields: %s", query)
+	}
+}
+
+func TestPatientKTPPhotoQueryPropagatesErrors(t *testing.T) {
+	for _, expected := range []error{gorm.ErrRecordNotFound, errors.New("database unavailable")} {
+		db := newDryRunPatientProfileRepository(t).DB
+		repo := NewPatientKTPRepository(db)
+		if err := db.Callback().Query().Before("gorm:query").Register("fail_photo_query", func(db *gorm.DB) {
+			db.AddError(expected)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		photo, err := repo.FindPhotoByUserID(7)
+		if photo != nil || !errors.Is(err, expected) {
+			t.Fatalf("expected query error without photo: %v, %v", photo, err)
+		}
+	}
+}
+
 func TestPatientKTPQueryPropagatesErrors(t *testing.T) {
 	for _, expected := range []error{gorm.ErrRecordNotFound, errors.New("database unavailable")} {
 		db := newDryRunPatientProfileRepository(t).DB

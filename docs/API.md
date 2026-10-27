@@ -16,7 +16,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
 | Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | Baca data KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp`; lihat [kontrak KTP](#10-ktp-pasien) |
-| Baca foto KTP pasien sendiri | Belum tersedia; `GET /api/patients/me/ktp/photo` ditunda ke tahap berikutnya |
+| Baca foto KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp/photo`; lihat bagian 10.4 |
 | Create KTP dan upload foto | Belum tersedia; `POST /api/patients/me/ktp` belum diimplementasikan |
 | RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik masih AES |
 | CORS untuk akses lintas origin dari browser | Tersedia |
@@ -41,7 +41,7 @@ Semua endpoint yang tersedia:
 | `POST` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membuat profil pasien sendiri; kontrak di bagian 9 |
 | `GET` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membaca profil sendiri beserta NIK/BPJS terdekripsi; kontrak di bagian 9 |
 | `GET` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membaca data KTP sendiri; kontrak di bagian 10 |
-
+| `GET` | `/api/patients/me/ktp/photo` | Cookie `access_token`, role `patient` | Mengambil bytes foto KTP sendiri setelah dekripsi; kontrak di bagian 10.4 |
 | `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripc.PatientProfileCosi, dan simpan file serta timing |
 | `GET` | `/api/files` | Cookie `access_token` | Seluruh metadata file milik pengguna login, urutan ID DESC, tanpa pagination/filter |
 | `GET` | `/api/files/:id` | Cookie `access_token` | Metadata file milik pengguna |
@@ -519,17 +519,17 @@ Detail schema, key, kompatibilitas data lama, dan pengujian ada di [PATIENT_PROF
 | `GET /api/patients/me/profile` | Pasien membaca profil sendiri | Tersedia |
 | `POST /api/patients/me/ktp` | Pasien mengirim data KTP dan foto | **Belum tersedia** |
 | `GET /api/patients/me/ktp` | Pasien membaca data KTP sendiri | Tersedia |
-| `GET /api/patients/me/ktp/photo` | Pasien mengambil foto KTP setelah dekripsi | **Belum tersedia — ditunda** |
+| `GET /api/patients/me/ktp/photo` | Pasien mengambil foto KTP setelah dekripsi | Tersedia |
 
-**Belum ada alur upload KTP dari aplikasi.** GET data KTP membaca record yang benar-benar sudah ada di PostgreSQL; tanpa profil/record KTP, responsnya `404`. Fixture KTP pada tes adalah data sintetis, bukan hasil upload melalui API. Jangan menampilkan data contoh sebagai KTP yang sudah tersimpan.
+**Belum ada alur upload KTP dari aplikasi.** Kedua GET membaca record yang benar-benar sudah ada di PostgreSQL; tanpa profil/record KTP, responsnya `404`. Fixture KTP pada tes adalah data sintetis, bukan hasil upload melalui API. Jangan menampilkan data contoh sebagai KTP yang sudah tersimpan.
 
 ### 10.2. Autentikasi, ownership, dan integritas
 
-- GET data KTP memakai cookie HttpOnly `access_token`, bukan Bearer token. Gunakan `credentials: "include"` untuk fetch lintas origin. Tidak perlu body, Content-Type request, atau ID pasien.
+- Kedua GET KTP memakai cookie HttpOnly `access_token`, bukan Bearer token. Gunakan `credentials: "include"` untuk fetch lintas origin. Tidak perlu body, Content-Type request, atau ID pasien.
 - Backend membaca role terbaru dari database melalui pemeriksaan profil yang sudah ada. Hanya role `patient` boleh memakai endpoint `/me/ktp`; dokter mendapat `403`.
 - Query KTP menghubungkan `patient_ktps.patient_profile_id` ke `patient_profiles.id` dan membatasi `patient_profiles.user_id` berdasarkan JWT. Query `user_id`, `patient_profile_id`, atau `ktp_id` kiriman klien tidak memilih pemilik lain.
 - NIK KTP didekripsi dengan ketiga cipher dan wajib sama dengan NIK profil pasien. Profil juga harus lolos pemeriksaan dekripsi yang dijelaskan di bagian 9.2.
-- Setiap field teks yang dikirim wajib lolos autentikasi AES/DES/RC4 dan menghasilkan plaintext identik. Tidak ada fallback KTP jika salah satu cipher hilang/rusak. Kompatibilitas RC4 NULL pada profil lama tidak berlaku pada kolom KTP.
+- Setiap field teks/foto yang dikirim wajib lolos autentikasi AES/DES/RC4 dan menghasilkan plaintext identik. Tidak ada fallback KTP jika salah satu cipher hilang/rusak. Kompatibilitas RC4 NULL pada profil lama tidak berlaku pada kolom KTP.
 - Respons controller memakai `Cache-Control: no-store` dan `X-Content-Type-Options: nosniff`. Jangan menyimpan hasilnya di log atau browser storage. Gunakan HTTPS di luar development lokal.
 - GET tidak melakukan update, backfill, atau menulis plaintext ke filesystem.
 
@@ -565,13 +565,34 @@ Respons **`200 OK`**, `Content-Type: application/json` (seluruh data di bawah si
 
 Field teks dibatasi 16 KiB plaintext per field dan wajib UTF-8 valid. Endpoint read tidak membuktikan kebenaran identitas, format pilihan resmi, atau keaslian dokumen.
 
-Respons tidak berisi foto/Base64, ciphertext, kunci, atau association model. Query metadata tidak memuat tiga blob foto dari database, dan endpoint ini tidak memeriksa integritas foto. Endpoint foto belum diimplementasikan. Bila satu field teks gagal, tidak ada data KTP sebagian yang dikirim.
+Respons tidak berisi foto/Base64, ciphertext, kunci, atau association model. Query metadata tidak memuat tiga blob foto dari database, dan endpoint ini tidak memeriksa integritas foto. Foto diperiksa terpisah oleh endpoint bagian 10.4. Bila satu field teks gagal, tidak ada data KTP sebagian yang dikirim.
 
-### 10.4. Endpoint yang belum tersedia
+### 10.4. Baca foto — `GET /api/patients/me/ktp/photo`
 
-`POST /api/patients/me/ktp` dan `GET /api/patients/me/ktp/photo` belum diimplementasikan. Kontrak upload dan respons binary foto belum diaktifkan; jangan memanggil endpoint tersebut dari frontend. Kolom ciphertext foto tetap ada di model sebagai persiapan tahap berikutnya.
+Kirim cookie login, tanpa body, ID pasien, atau Content-Type request. Hanya pasien pemilik yang boleh mengakses; role terbaru dibaca dari database. Parameter query tidak dapat memilih pasien lain.
 
-### 10.5. Error GET data KTP
+Respons **`200 OK` berupa bytes gambar asli**, bukan JSON/Base64/path:
+
+```http
+Content-Type: image/png
+Content-Disposition: inline; filename="ktp.png"
+Cache-Control: no-store
+X-Content-Type-Options: nosniff
+```
+
+Untuk JPEG, Content-Type adalah `image/jpeg` dan filename `ktp.jpg`. Nama file tetap, tanpa nama pasien atau NIK.
+
+- Backend membaca kolom `photo_aes`, `photo_des`, `photo_rc4` langsung dari PostgreSQL melalui query owner-scoped. Tidak memakai filesystem, folder static, atau URL publik.
+- Profil dan NIK KTP harus lolos pemeriksaan ownership/kecocokan; setiap ciphertext foto wajib lolos autentikasi dan ketiganya menghasilkan bytes identik. Tidak ada fallback jika salah satu hilang/rusak.
+- Bytes hasil dikirim tanpa re-encode, termasuk metadata gambar asli. Pemeriksaan header memakai decoder PNG/JPEG; bukan OCR, verifikasi keaslian KTP, atau validasi penuh seluruh isi gambar.
+- Batas pembacaan: maksimal **8 MiB plaintext**, maksimal **25 juta pixel** berdasarkan dimensi header. Ukuran envelope dibatasi sebelum alokasi dekripsi.
+- Query foto hanya memuat ID, relasi profil, NIK, dan ciphertext foto; tidak membaca/mendekripsi seluruh field teks KTP. Endpoint data teks tetap tidak memuat blob foto.
+- Semua pemeriksaan selesai sebelum pengiriman binary. Jika gagal, respons JSON generik dikirim tanpa bytes foto sebagian. Foto kosong/rusak pada record yang sudah ada menghasilkan `500`, bukan `404`.
+- Frontend mengecek `response.ok` terlebih dahulu. Sukses dibaca dengan `response.blob()` atau `arrayBuffer()`; error dibaca sebagai JSON. Jangan menyimpan foto ke browser storage atau log.
+
+**POST `/api/patients/me/ktp` masih belum tersedia.** GET foto hanya membaca record yang sudah tersimpan; foto pada tes merupakan fixture sintetis, bukan hasil upload API.
+
+### 10.5. Error kedua GET KTP
 
 | Status | Kondisi | Message dari controller |
 | --- | --- | --- |
@@ -579,12 +600,12 @@ Respons tidak berisi foto/Base64, ciphertext, kunci, atau association model. Que
 | `403` | Role terbaru bukan pasien | `Only patients can access their own KTP` |
 | `404` | Pasien belum mempunyai profil | `Patient profile not found` |
 | `404` | Profil ada tetapi belum mempunyai record KTP | `Patient KTP not found` |
-| `500` | Gangguan database, dekripsi/integritas gagal, NIK berbeda, representasi hilang/tidak cocok, atau teks tidak memenuhi batas pembacaan | `Unable to read patient KTP` |
+| `500` | Gangguan database, dekripsi/integritas gagal, NIK berbeda, representasi hilang/tidak cocok, atau teks/foto tidak memenuhi batas pembacaan | `Unable to read patient KTP` |
 
-Semua error berbentuk `{"message":"..."}` tanpa data KTP sebagian. Kondisi foto tidak diperiksa oleh endpoint data teks ini.
+Semua error berbentuk `{"message":"..."}` tanpa data KTP atau bytes foto sebagian. Kondisi foto hanya diperiksa endpoint foto, bukan endpoint data teks.
 
 ### 10.6. Batas implementasi dan verifikasi
 
-Endpoint read, tes router/service dengan cipher sungguhan, dan tes SQL DryRun tersedia. Tes memakai record KTP sintetis; belum merupakan verifikasi PostgreSQL nyata atau alur upload end-to-end. Dua endpoint yang belum selesai dari daftar bagian 10.1 adalah **`POST /api/patients/me/ktp`** dan **`GET /api/patients/me/ktp/photo`**.
+Endpoint read, tes router/service dengan cipher sungguhan, dan tes SQL DryRun tersedia. Tes memakai record KTP dan foto sintetis; mencakup kesamaan bytes PNG/JPEG, penolakan akses tidak sah, ciphertext rusak/tidak cocok, serta batas ukuran/dimensi. Tes belum merupakan verifikasi PostgreSQL nyata atau alur upload end-to-end. Satu endpoint yang belum selesai dari daftar bagian 10.1 adalah **`POST /api/patients/me/ktp`**.
 
 Integritas kriptografis tidak membuktikan kebenaran data identitas atau ketahanan terhadap seluruh manipulasi administrator. DES/RC4 tetap untuk assignment, bukan rekomendasi sistem medis produksi. Detail schema ada di [PATIENT_KTP.md](PATIENT_KTP.md).

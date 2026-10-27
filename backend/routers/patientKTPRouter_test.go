@@ -34,6 +34,10 @@ func (r *ktpRouteRepository) FindByUserID(userID uint) (*models.PatientKTP, erro
 	return r.stored, nil
 }
 
+func (r *ktpRouteRepository) FindPhotoByUserID(userID uint) (*models.PatientKTP, error) {
+	return r.FindByUserID(userID)
+}
+
 func encryptedKTPFixture(t *testing.T, key [32]byte, plaintext []byte) models.KTPEncryptedValue {
 	t.Helper()
 	var result models.KTPEncryptedValue

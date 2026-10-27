@@ -2,9 +2,9 @@
 
 ## Status dan scope
 
-Model/schema dan satu endpoint pembacaan data tersedia: `GET /api/patients/me/ktp`. Service memakai utilitas AES/DES/RC4 yang sudah ada untuk dekripsi dan memeriksa kesamaan hasil; repository membatasi user pemilik melalui relasi profil.
+Model/schema serta endpoint baca data dan foto tersedia: `GET /api/patients/me/ktp` dan `GET /api/patients/me/ktp/photo`. Service memakai utilitas AES/DES/RC4 yang sudah ada untuk dekripsi dan memeriksa kesamaan hasil; repository membatasi user pemilik melalui relasi profil.
 
-**POST/create/upload KTP dan GET foto KTP belum diimplementasikan.** GET data membutuhkan record yang sudah tersimpan; fixture tes bersifat sintetis, bukan upload sungguhan. Kontrak request/response, error, serta status kelima endpoint pasien dipusatkan di [API.md — bagian 10](API.md#10-ktp-pasien).
+**POST/create/upload KTP belum diimplementasikan.** Kedua GET membutuhkan record yang sudah tersimpan; fixture tes bersifat sintetis, bukan upload sungguhan. Kontrak request/response, error, serta status kelima endpoint pasien dipusatkan di [API.md — bagian 10](API.md#10-ktp-pasien).
 
 `PatientKTP` didaftarkan ke `AutoMigrate` yang sudah ada. Tabel akan dibuat saat backend dijalankan terhadap database yang dikonfigurasi; migration tidak dijalankan dalam sesi ini. Tidak ada SQL migration terpisah.
 

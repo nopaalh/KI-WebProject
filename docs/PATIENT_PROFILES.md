@@ -4,7 +4,7 @@
 
 Kontrak request/response, validasi field, autentikasi/ownership, status error, serta contoh data sintetis untuk **POST dan GET `/api/patients/me/profile`** dipusatkan di **[API.md — bagian 9: Profil pasien](API.md#9-profil-pasien)**.
 
-Dokumen ini hanya membahas penyimpanan dan implementasi agar kontrak tidak diduplikasi. Belum ada update/delete profil, create/upload KTP, atau frontend profil pada perubahan ini. Endpoint baca data KTP tersedia; endpoint foto KTP belum tersedia; kontraknya di [API.md — bagian 10](API.md#10-ktp-pasien).
+Dokumen ini hanya membahas penyimpanan dan implementasi agar kontrak tidak diduplikasi. Belum ada update/delete profil, create/upload KTP, atau frontend profil pada perubahan ini. Endpoint baca data dan foto KTP tersedia; kontraknya di [API.md — bagian 10](API.md#10-ktp-pasien).
 
 ## Enkripsi dan batas perlindungan
 
