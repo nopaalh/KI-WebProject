@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"unicode/utf8"
 
 	"project1/models"
@@ -13,7 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-const maxKTPTextSize = 16 << 10
+const (
+	maxKTPTextSize  = 16 << 10
+	MaxKTPPhotoSize = 8 << 20
+	maxKTPPixels    = 25_000_000
+)
 
 var (
 	ErrKTPNotFound  = errors.New("patient KTP not found")
@@ -40,8 +46,15 @@ type PatientKTPView struct {
 	Citizenship      string `json:"citizenship"`
 }
 
+type KTPPhoto struct {
+	Bytes       []byte
+	ContentType string
+	Filename    string
+}
+
 type patientKTPReader interface {
 	FindByUserID(uint) (*models.PatientKTP, error)
+	FindPhotoByUserID(uint) (*models.PatientKTP, error)
 }
 
 type PatientKTPService struct {
@@ -54,12 +67,17 @@ func NewPatientKTPService(ktps patientKTPReader, profiles *PatientProfileService
 	return &PatientKTPService{ktps: ktps, profiles: profiles, key: key}
 }
 
-func (s *PatientKTPService) loadOwned(userID uint) (*models.PatientKTP, *PatientProfileView, error) {
+func (s *PatientKTPService) loadOwned(userID uint, photo bool) (*models.PatientKTP, *PatientProfileView, error) {
 	profile, err := s.profiles.Get(userID)
 	if err != nil {
 		return nil, nil, err
 	}
-	ktp, err := s.ktps.FindByUserID(userID)
+	var ktp *models.PatientKTP
+	if photo {
+		ktp, err = s.ktps.FindPhotoByUserID(userID)
+	} else {
+		ktp, err = s.ktps.FindByUserID(userID)
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil, ErrKTPNotFound
 	}
@@ -77,7 +95,7 @@ func (s *PatientKTPService) loadOwned(userID uint) (*models.PatientKTP, *Patient
 }
 
 func (s *PatientKTPService) Get(userID uint) (*PatientKTPView, error) {
-	ktp, profile, err := s.loadOwned(userID)
+	ktp, profile, err := s.loadOwned(userID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +119,31 @@ func (s *PatientKTPService) Get(userID uint) (*PatientKTPView, error) {
 		*field.target = string(plaintext)
 	}
 	return view, nil
+}
+
+func (s *PatientKTPService) GetPhoto(userID uint) (*KTPPhoto, error) {
+	ktp, _, err := s.loadOwned(userID, true)
+	if err != nil {
+		return nil, err
+	}
+	plaintext, err := s.decryptValue(ktp.Photo, MaxKTPPhotoSize)
+	if err != nil {
+		return nil, err
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(plaintext))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || config.Width > maxKTPPixels/config.Height {
+		return nil, ErrKTPIntegrity
+	}
+	photo := &KTPPhoto{Bytes: plaintext}
+	switch format {
+	case "jpeg":
+		photo.ContentType, photo.Filename = "image/jpeg", "ktp.jpg"
+	case "png":
+		photo.ContentType, photo.Filename = "image/png", "ktp.png"
+	default:
+		return nil, ErrKTPIntegrity
+	}
+	return photo, nil
 }
 
 func (s *PatientKTPService) decryptValue(value models.KTPEncryptedValue, limit int) ([]byte, error) {
