@@ -1,3 +1,5 @@
 .env
 *.log
 /storage/
+__pycache__/
+scripts/
