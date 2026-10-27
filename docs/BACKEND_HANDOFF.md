@@ -29,7 +29,7 @@ Status diperbarui terhadap `main` pada `57d06b2` (2026-10-27) berdasarkan kode d
 | AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
 | Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
 | Batas upload | Saat ini 8 MiB; bukan 25 MiB |
-| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download memeriksa seluruh set, selector algorithm memilih timing yang dilaporkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
+| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download hanya membaca dan mendekripsi cipher yang dipilih lewat `?algorithm=aes|des|rc4` (HMAC dan ukuran plaintext diperiksa), sehingga waktu tiap cipher dapat dibandingkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
 | Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
 | Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
 | Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |

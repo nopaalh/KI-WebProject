@@ -81,11 +81,11 @@ ID/ukuran/nama adalah contoh sintetis; timing nol di contoh **hanya penanda form
 
 ### Download — `POST /api/files/:id/decrypt?algorithm=aes|des|rc4`
 
-Tanpa body. Parameter default/kosong adalah `aes`; nilai selain tiga nama lowercase tersebut ditolak `400`. Parameter hanya memilih representasi yang diukur/dilaporkan, bukan mengubah cara upload disimpan.
+Tanpa body. Parameter default/kosong adalah `aes`; nilai selain tiga nama lowercase tersebut ditolak `400`. Parameter memilih representasi yang dibaca dan didekripsi, bukan mengubah cara upload disimpan.
 
-Untuk versi 1, backend membaca, mengautentikasi, dan mendekripsi **ketiga ciphertext**, membandingkan hasil byte-per-byte dan ukuran plaintext. Satu salinan hilang/rusak/tidak cocok membuat **seluruh download gagal**, termasuk ketika cipher lain dipilih. Tidak ada partial plaintext atau fallback. Symlink, path di luar storage, prefix cipher salah, dan envelope melebihi batas ditolak.
+Untuk versi 1, ketiga path wajib tercatat, tetapi backend hanya membaca, mengautentikasi (HMAC), dan mendekripsi **ciphertext cipher yang dipilih**, lalu memeriksa ukuran plaintext terhadap `original_size`. Salinan hilang/rusak/berukuran lain pada cipher yang dipilih membuat download gagal; salinan cipher lain tidak dibaca, jadi kerusakannya baru terdeteksi saat cipher itu dipilih (atau tidak sama sekali sampai dibaca). Dengan begitu latensi satu request mencerminkan satu cipher dan ketiganya dapat dibandingkan. Tidak ada partial plaintext atau fallback. Symlink, path di luar storage, prefix cipher salah, dan envelope melebihi batas ditolak. Upload tetap memverifikasi round-trip ketiga cipher dari disk.
 
-Setelah verifikasi lengkap, hanya timing dekripsi cipher yang dipilih diperbarui pada row owner-scoped. Jika update DB gagal, download gagal sebelum mengirim body sukses.
+Setelah dekripsi berhasil, timing dekripsi cipher yang dipilih diperbarui pada row owner-scoped. Jika update DB gagal, download gagal sebelum mengirim body sukses.
 
 ```http
 HTTP/1.1 200 OK
@@ -114,7 +114,7 @@ Error selalu JSON `{"message":"..."}`; internal error memakai `Failed to process
 
 Enam kolom timing mengukur fungsi envelope masing-masing cipher dengan `time.Now`/`time.Since`, dalam nanodetik. Termasuk derivasi kunci, alokasi, mode/padding/drop, nonce/IV acak saat enkripsi, dan HMAC; bukan hanya putaran cipher.
 
-Tidak termasuk network, parsing multipart, disk read/write/Sync, DB, serialisasi, atau perbandingan bytes. Pada download versi 1, semua cipher diverifikasi tetapi **header dan satu kolom yang diperbarui hanya milik cipher pilihan**. Latensi HTTP mencakup verifikasi ketiganya; jangan menganggapnya waktu satu algoritma. Timing dua cipher lain tidak ditimpa pada request itu.
+Tidak termasuk network, parsing multipart, disk read/write/Sync, DB, serialisasi, atau perbandingan bytes. Pada download versi 1 hanya cipher pilihan yang didekripsi, sehingga latensi HTTP mencakup satu cipher ditambah biaya tetap (sekitar 12 ms pada 1 MiB, lihat [macro-benchmark.txt](macro-benchmark.txt)). Header dan satu kolom yang diperbarui hanya milik cipher pilihan; timing dua cipher lain tidak ditimpa pada request itu.
 
 Kolom decrypt berawal dari verifikasi upload dan kemudian menyimpan sampel terakhir untuk cipher yang dipilih; bukan riwayat/rata-rata. Request bersamaan dapat saling menimpa. Enkripsi timing tidak berubah saat download. Konversi ms = ns/1e6.
 

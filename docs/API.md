@@ -754,7 +754,7 @@ Semua error memakai JSON `{"message":"..."}`. Tes alur upload/read memakai data 
 - `cipher_set_version`: `1` untuk upload baru yang mewajibkan tiga cipher; `0` untuk legacy AES-only.
 - `aes_encrypt_time_ns`, `aes_decrypt_time_ns`, `des_encrypt_time_ns`, `des_decrypt_time_ns`, `rc4_encrypt_time_ns`, `rc4_decrypt_time_ns`.
 
-Download: **`POST /api/files/:id/decrypt?algorithm=aes|des|rc4`**, tanpa body, cookie login wajib. Algorithm default/kosong adalah `aes`; nilai lain `400`. Untuk versi 1, semua ciphertext wajib lolos autentikasi/dekripsi dan memiliki plaintext identik; satu hilang/rusak/tidak cocok menggagalkan seluruh download, tanpa partial plaintext atau fallback.
+Download: **`POST /api/files/:id/decrypt?algorithm=aes|des|rc4`**, tanpa body, cookie login wajib. Algorithm default/kosong adalah `aes`; nilai lain `400`. Untuk versi 1, ketiga path wajib tercatat, tetapi hanya ciphertext cipher yang dipilih yang dibaca, diautentikasi (HMAC), dan didekripsi, lalu ukurannya dicocokkan dengan `original_size`; satu yang hilang/rusak/berukuran lain pada cipher pilihan menggagalkan download, tanpa partial plaintext atau fallback. Salinan cipher lain tidak diperiksa pada request itu.
 
 Sukses `200` binary bytes asli, `Content-Type: application/octet-stream`, attachment filename, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Decryption-Algorithm` berisi pilihan cipher, dan `X-Decryption-Time-Ns` untuk cipher pilihan. Kedua header dekripsi diekspos melalui CORS. Hanya timing decrypt cipher pilihan yang diupdate pada database, dan kegagalan update membuat request gagal sebelum body sukses dikirim.
 
@@ -762,4 +762,4 @@ Error: `400` input/algorithm invalid; `401` tidak terautentikasi; `404` file tid
 
 **Legacy dan batasan:** versi 0 tetap dapat dibaca dengan AES jika envelope valid; tidak otomatis di-backfill. AutoMigrate menambahkan empat kolom timing dan versi set cipher, tetapi migrasi tidak dijalankan dalam sesi ini. Filesystem dan PostgreSQL bukan satu transaksi crash-atomic; crash/cleanup failure dapat meninggalkan orphan. Metadata nama/tipe/ukuran tetap plaintext, DES/RC4 bukan cipher produksi, dan batas video masih 8 MiB.
 
-Timing hanya mencakup fungsi envelope, bukan I/O/network/DB. Download versi 1 memverifikasi ketiganya sehingga latensi HTTP bukan waktu satu cipher; header melaporkan waktu fungsi dekripsi yang dipilih. Bukan benchmark berulang atau klaim seluruh assignment selesai. Detail konfigurasi, envelope, cleanup, pengukuran, dan contoh klien: [FILES.md](FILES.md).
+Timing hanya mencakup fungsi envelope, bukan I/O/network/DB. Download versi 1 hanya mendekripsi cipher pilihan, sehingga latensi HTTP mencerminkan satu cipher; header melaporkan waktu fungsi dekripsi yang dipilih. Bukan benchmark berulang atau klaim seluruh assignment selesai. Detail konfigurasi, envelope, cleanup, pengukuran, dan contoh klien: [FILES.md](FILES.md).
