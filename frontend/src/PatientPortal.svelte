@@ -12,7 +12,9 @@
   let page = $state<Page>('documents')
   let recordId = $state<number | null>(null)
   let unread = $state(notifications.map(item => item.id))
+  let accountMenu = $state<HTMLDetailsElement>()
   let notificationDialog = $state<HTMLDialogElement>()
+  let logoutDialog = $state<HTMLDialogElement>()
   let content = $state<HTMLDivElement>()
 
   async function navigate(next: Page, id: number | null = null) {
@@ -22,6 +24,7 @@
       await tick()
       recordId = id
     }
+    if (accountMenu) accountMenu.open = false
     await tick()
     content?.querySelector<HTMLElement>('div:not([hidden]) > main h1')?.focus({ preventScroll: true })
     window.scrollTo({ top: 0 })
@@ -39,8 +42,11 @@
 <header class="topbar">
   <button class="wordmark" type="button" onclick={() => navigate('documents')} aria-label="Portal Pasien, buka dokumen"><img src="/images/portal-mark.svg" alt="" width="34" height="34" /><span>Portal Pasien<span class="wordmark-caption">Ruang kesehatan Anda</span></span></button>
   <div class="portal-actions">
-    <button class="notification-button" type="button" onclick={() => { notificationDialog?.showModal() }} aria-label={`Notifikasi, ${unread.length} belum dibaca`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3Zm5 4h4" /></svg><span class="notification-text">Notifikasi</span>{#if unread.length}<span class="notification-count">{unread.length}</span>{/if}</button>
-<span class="account-hint">{user.name}</span><button class="back" type="button" onclick={onSwitchAccount}>Ganti akun</button>
+    <button class="notification-button" type="button" onclick={() => { if (accountMenu) accountMenu.open = false; notificationDialog?.showModal() }} aria-label={`Notifikasi, ${unread.length} belum dibaca`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3Zm5 4h4" /></svg><span class="notification-text">Notifikasi</span>{#if unread.length}<span class="notification-count">{unread.length}</span>{/if}</button>
+    <details class="account-menu" bind:this={accountMenu}>
+      <summary aria-label="Menu akun"><span>{user.name}</span><small>Akun pasien</small></summary>
+      <div class="account-dropdown"><button type="button" onclick={() => navigate('profile')}>Profil pasien</button><button type="button" onclick={onSwitchAccount}>Ganti akun</button><button type="button" onclick={() => { if (accountMenu) accountMenu.open = false; logoutDialog?.showModal() }}>Keluar</button></div>
+    </details>
   </div>
 </header>
 
@@ -59,6 +65,7 @@
   <ul class="notification-list">{#each notifications as item}<li><button type="button" class:unread={unread.includes(item.id)} aria-label={`Buka pembaruan ${item.title}`} onclick={() => openNotification(item.id)}><span class="notification-dot" aria-hidden="true"></span><span><strong>{item.title}</strong><span>{item.versions[0]?.summary}</span><small>{item.versions[0]?.date}</small></span></button></li>{/each}</ul>
 </dialog>
 
+<dialog class="logout-dialog" bind:this={logoutDialog} aria-labelledby="logout-title"><img src="/images/portal-mark.svg" alt="" width="40" height="40" /><h2 id="logout-title">Keluar dari akun?</h2><p>Fitur keluar belum tersedia pada tampilan ini. Anda tetap dapat mengganti akun melalui menu akun.</p><div class="logout-actions"><form method="dialog"><button class="patient-button secondary" type="submit">Batal</button></form><button class="patient-button" type="button" disabled>Keluar</button></div></dialog>
 
 <style>
   .portal-actions { display: flex; align-items: center; gap: 20px; margin-left: auto; }
