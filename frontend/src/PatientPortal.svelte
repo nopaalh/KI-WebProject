@@ -3,9 +3,10 @@
   import Dashboard from './Dashboard.svelte'
   import PatientProfile from './PatientProfile.svelte'
   import MedicalRecords from './MedicalRecords.svelte'
-  import { exampleDocuments, exampleMedicalRecords } from './patientExamples'
+  import { exampleMedicalRecords } from './patientExamples'
+  import type { CurrentUser } from './api'
 
-  let { user, onSwitchAccount }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; onSwitchAccount: () => void } = $props()
+  let { user, onSwitchAccount, onUnauthorized }: { user: CurrentUser; onSwitchAccount: () => Promise<void> | void; onUnauthorized?: () => void } = $props()
   type Page = 'documents' | 'profile' | 'records'
   const pages: { id: Page; label: string }[] = [{ id: 'documents', label: 'Dokumen' }, { id: 'profile', label: 'Profil pasien' }, { id: 'records', label: 'Rekam medis' }]
   const notifications = exampleMedicalRecords.slice(0, 2)
@@ -16,6 +17,22 @@
   let notificationDialog = $state<HTMLDialogElement>()
   let logoutDialog = $state<HTMLDialogElement>()
   let content = $state<HTMLDivElement>()
+  let loggingOut = $state(false)
+  let logoutError = $state('')
+
+  async function confirmLogout() {
+    if (loggingOut) return
+    loggingOut = true
+    logoutError = ''
+    try {
+      await onSwitchAccount()
+      logoutDialog?.close()
+    } catch {
+      logoutError = 'Gagal mengakhiri sesi di browser. Silakan coba lagi.'
+    } finally {
+      loggingOut = false
+    }
+  }
 
   async function navigate(next: Page, id: number | null = null) {
     page = next
@@ -45,7 +62,7 @@
     <button class="notification-button" type="button" onclick={() => { if (accountMenu) accountMenu.open = false; notificationDialog?.showModal() }} aria-label={`Notifikasi, ${unread.length} belum dibaca`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3Zm5 4h4" /></svg><span class="notification-text">Notifikasi</span>{#if unread.length}<span class="notification-count">{unread.length}</span>{/if}</button>
     <details class="account-menu" bind:this={accountMenu}>
       <summary aria-label="Menu akun"><span>{user.name}</span><small>Akun pasien</small></summary>
-      <div class="account-dropdown"><button type="button" onclick={() => navigate('profile')}>Profil pasien</button><button type="button" onclick={onSwitchAccount}>Ganti akun</button><button type="button" onclick={() => { if (accountMenu) accountMenu.open = false; logoutDialog?.showModal() }}>Keluar</button></div>
+      <div class="account-dropdown"><button type="button" onclick={() => navigate('profile')}>Profil pasien</button><button type="button" onclick={() => { if (accountMenu) accountMenu.open = false; logoutError = ''; logoutDialog?.showModal() }}>Keluar / Ganti akun</button></div>
     </details>
   </div>
 </header>
@@ -53,19 +70,19 @@
 <nav class="patient-navigation" aria-label="Halaman pasien">{#each pages as item}<button type="button" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>{item.label}</button>{/each}</nav>
 
 <div class="portal-content" bind:this={content}>
-  <div hidden={page !== 'documents'}><Dashboard {user} files={exampleDocuments} onOpenProfile={() => navigate('profile')} /></div>
-  <div hidden={page !== 'profile'}><PatientProfile {user} /></div>
+  <div hidden={page !== 'documents'}><Dashboard {user} onOpenProfile={() => navigate('profile')} {onUnauthorized} /></div>
+  <div hidden={page !== 'profile'}><PatientProfile {user} {onUnauthorized} /></div>
   <div hidden={page !== 'records'}>{#key recordId}<MedicalRecords records={exampleMedicalRecords} bind:selectedId={recordId} />{/key}</div>
 </div>
 
 <dialog class="notification-dialog" bind:this={notificationDialog} aria-labelledby="notifications-title">
   <form method="dialog" class="dialog-close"><button class="text-button" type="submit">Tutup</button></form>
-  <h2 id="notifications-title">Notifikasi</h2><p class="patient-note">Pembaruan contoh untuk memperlihatkan alur pemeriksaan.</p>
+  <h2 id="notifications-title">Notifikasi (Data contoh)</h2><p class="patient-note">Pembaruan contoh untuk memperlihatkan alur rekam medis.</p>
   <div class="notification-toolbar"><span role="status">{unread.length ? `${unread.length} belum dibaca` : 'Semua pembaruan sudah dibaca'}</span><button class="text-button" type="button" disabled={!unread.length} onclick={() => unread = []}>Tandai semua dibaca</button></div>
   <ul class="notification-list">{#each notifications as item}<li><button type="button" class:unread={unread.includes(item.id)} aria-label={`Buka pembaruan ${item.title}`} onclick={() => openNotification(item.id)}><span class="notification-dot" aria-hidden="true"></span><span><strong>{item.title}</strong><span>{item.versions[0]?.summary}</span><small>{item.versions[0]?.date}</small></span></button></li>{/each}</ul>
 </dialog>
 
-<dialog class="logout-dialog" bind:this={logoutDialog} aria-labelledby="logout-title"><img src="/images/portal-mark.svg" alt="" width="40" height="40" /><h2 id="logout-title">Keluar dari akun?</h2><p>Fitur keluar belum tersedia pada tampilan ini. Anda tetap dapat mengganti akun melalui menu akun.</p><div class="logout-actions"><form method="dialog"><button class="patient-button secondary" type="submit">Batal</button></form><button class="patient-button" type="button" disabled>Keluar</button></div></dialog>
+<dialog class="logout-dialog" bind:this={logoutDialog} aria-labelledby="logout-title"><img src="/images/portal-mark.svg" alt="" width="40" height="40" /><h2 id="logout-title">Keluar dari akun?</h2><p>Sesi browser ini akan diakhiri melalui endpoint logout dan menghapus cookie autentikasi.</p>{#if logoutError}<p class="patient-note" role="alert">{logoutError}</p>{/if}<div class="logout-actions"><form method="dialog"><button class="patient-button secondary" type="submit" disabled={loggingOut}>Batal</button></form><button class="patient-button" type="button" disabled={loggingOut} onclick={confirmLogout}>{loggingOut ? 'Memproses…' : 'Keluar'}</button></div></dialog>
 
 <style>
   .portal-actions { display: flex; align-items: center; gap: 20px; margin-left: auto; }
