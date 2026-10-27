@@ -31,6 +31,12 @@ func TestDESSplit(t *testing.T) {
 	if r0[0] != plain[32] || r0[31] != plain[63] {
 		t.Fatal("r0 bukan 32 bit kanan dari plain")
 	}
+
+	// Hasil PC-1 (56 bit) harus terbelah 28 + 28 untuk C dan D.
+	c0, d0 := DESSplit(make([]byte, 56))
+	if len(c0) != 28 || len(d0) != 28 {
+		t.Fatalf("panjang c0=%d d0=%d, want 28 dan 28", len(c0), len(d0))
+	}
 }
 
 // bitsFromString mengubah teks "0101 ..." menjadi satu elemen per bit; selain 0 dan 1 diabaikan.

@@ -12,10 +12,12 @@ func DESPermutation(input []byte, table []byte) []byte {
 	return output
 }
 
-// DESSplit membelah 64 bit menjadi l0 (32 bit kiri) dan r0 (32 bit kanan).
+// DESSplit membelah bit menjadi dua bagian sama panjang: 64 bit jadi l0 dan r0 (32 + 32),
+// 56 bit hasil PC-1 jadi c0 dan d0 (28 + 28).
 func DESSplit(plain []byte) (l0, r0 []byte) {
-	l0 = plain[:32]
-	r0 = plain[32:]
+	half := len(plain) / 2
+	l0 = plain[:half]
+	r0 = plain[half:]
 
 	return l0, r0
 }
