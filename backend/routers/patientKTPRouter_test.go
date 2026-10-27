@@ -10,6 +10,7 @@ import (
 
 	"project1/controllers"
 	"project1/models"
+	"project1/repositories"
 	"project1/services"
 	"project1/utils"
 
@@ -21,6 +22,18 @@ type ktpRouteRepository struct {
 	stored *models.PatientKTP
 	err    error
 	calls  int
+}
+
+func (r *ktpRouteRepository) Create(ktp *models.PatientKTP) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.stored != nil {
+		return repositories.ErrPatientKTPExists
+	}
+	ktp.ID = 3
+	r.stored = ktp
+	return nil
 }
 
 func (r *ktpRouteRepository) FindByUserID(userID uint) (*models.PatientKTP, error) {
