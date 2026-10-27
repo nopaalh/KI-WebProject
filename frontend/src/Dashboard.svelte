@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import DocumentPreview from './DocumentPreview.svelte'
-  import { exampleDocuments, type DocumentCategory, type PatientDocument } from './patientExamples'
+  import { type DocumentCategory, type PatientDocument } from './patientExamples'
+  import { ApiError, apiListFiles, apiUploadPatientFile, classifyFileCategory, classifyFileKind, type ApiFileRecord } from './api'
 
-  let { user, files = exampleDocuments, onOpenProfile }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; files?: PatientDocument[]; onOpenProfile?: () => void } = $props()
+  type DashboardDocument = PatientDocument & { record?: ApiFileRecord }
+  let { user, onOpenProfile, onUnauthorized }: { user: { id?: number; name: string; username: string; role: 'patient' | 'doctor' }; onOpenProfile?: () => void; onUnauthorized?: () => void } = $props()
 
   const illustratedKinds = ['PDF', 'DOCX', 'PNG', 'MP4']
   const categories: DocumentCategory[] = ['Semua', 'Dokumen', 'Foto', 'Video']
@@ -12,17 +14,26 @@
   let selectedFile = $state<File | null>(null)
   let fileInput = $state<HTMLInputElement>()
   let dialog = $state<HTMLDialogElement>()
-  let detail = $state<PatientDocument | null>(null)
+  let detail = $state<DashboardDocument | null>(null)
   let notice = $state('')
-  const documents = $derived([
+  let uploading = $state(false)
+  let loadingFiles = $state(true)
+  let remoteFiles = $state<ApiFileRecord[]>([])
+  const documents = $derived<DashboardDocument[]>([
     ...(selectedFile ? [{
       name: selectedFile.name,
-      kind: selectedFile.name.split('.').pop()?.toUpperCase().slice(0, 8) || 'FILE',
-      category: (selectedFile.type.startsWith('image/') ? 'Foto' : selectedFile.type.startsWith('video/') ? 'Video' : 'Dokumen') as DocumentCategory,
+      kind: classifyFileKind(selectedFile.name),
+      category: classifyFileCategory(selectedFile.name, selectedFile.type),
       size: selectedFile.size,
       selected: true,
     }] : []),
-    ...files,
+    ...remoteFiles.map(record => ({
+      name: record.original_name,
+      kind: classifyFileKind(record.original_name),
+      category: classifyFileCategory(record.original_name, record.original_type),
+      size: record.original_size,
+      record,
+    })),
   ])
   const filtered = $derived(documents.filter(file =>
     (category === 'Semua' || file.category === category) && file.name.toLowerCase().includes(search.toLowerCase().trim()),
@@ -35,7 +46,27 @@
     return `${(bytes / 1048576).toLocaleString('id-ID', { maximumFractionDigits: 1 })} MB`
   }
 
+  onMount(() => {
+    const controller = new AbortController()
+    void loadFiles(controller.signal)
+    return () => controller.abort()
+  })
+
+  async function loadFiles(signal?: AbortSignal) {
+    loadingFiles = true
+    try {
+      remoteFiles = await apiListFiles(signal)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized?.(); return }
+      notice = 'Gagal memuat daftar dokumen dari server.'
+    } finally {
+      loadingFiles = false
+    }
+  }
+
   function chooseFile(event: Event) {
+    if (uploading) return
     const file = (event.currentTarget as HTMLInputElement).files?.[0]
     if (!file) return
     if (file.size > 8 * 1024 * 1024) {
@@ -44,18 +75,44 @@
       return
     }
     selectedFile = file
-    notice = 'Dokumen dipilih. Belum diunggah.'
+    notice = 'Dokumen dipilih. Klik Unggah untuk menyimpan ke akun Anda.'
     category = 'Semua'
     search = ''
   }
 
   function clearFile() {
+    if (uploading) return
     selectedFile = null
     notice = ''
     if (fileInput) fileInput.value = ''
   }
 
-  async function showDetail(file: PatientDocument) {
+  async function uploadSelected() {
+    if (!selectedFile || uploading) return
+    uploading = true
+    notice = ''
+    try {
+      const saved = await apiUploadPatientFile(selectedFile)
+      selectedFile = null
+      if (fileInput) fileInput.value = ''
+      notice = `Berkas "${saved.original_name}" berhasil disimpan.`
+      await loadFiles()
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized?.(); return }
+      if (err instanceof ApiError && err.status === 404) notice = 'Lengkapi profil pasien terlebih dahulu sebelum mengunggah dokumen.'
+      else if (err instanceof ApiError && err.status === 413) notice = 'Ukuran berkas melebihi batas 8 MiB.'
+      else notice = 'Gagal mengunggah berkas ke server.'
+    } finally {
+      uploading = false
+    }
+  }
+
+  function updateRecord(updated: ApiFileRecord) {
+    remoteFiles = remoteFiles.map(item => item.id === updated.id ? updated : item)
+    if (detail?.record?.id === updated.id) detail = { ...detail, record: updated }
+  }
+
+  async function showDetail(file: DashboardDocument) {
     detail = file
     await tick()
     dialog?.showModal()
@@ -87,11 +144,11 @@
         <img class="upload-art" src="/images/document-stack.svg" alt="" width="200" height="160" />
         <h2 id="upload-title">Tambah dokumen</h2>
         <p>Identitas, formulir, dan berkas pendukung perawatan.</p>
-        <input class="file-input" id="document-file" type="file" bind:this={fileInput} onchange={chooseFile} aria-label="Pilih dokumen" />
-        <button class="choose-file" type="button" onclick={() => fileInput?.click()}>Pilih dokumen</button>
+        <input class="file-input" id="document-file" type="file" bind:this={fileInput} onchange={chooseFile} disabled={uploading} aria-label="Pilih dokumen" />
+        <button class="choose-file" type="button" disabled={uploading} onclick={() => fileInput?.click()}>Pilih dokumen</button>
         <span class="file-limit">Maksimal 8 MiB per file</span>
         {#if selectedFile}
-          <div class="selected-file"><span>{selectedFile.name}</span><button type="button" onclick={clearFile}>Batalkan</button></div>
+          <div class="selected-file"><span>{selectedFile.name}</span><div><button type="button" disabled={uploading} onclick={uploadSelected}>{uploading ? 'Mengunggah…' : 'Unggah'}</button> · <button type="button" disabled={uploading} onclick={clearFile}>Batalkan</button></div></div>
         {/if}
         <p class="upload-notice" aria-live="polite">{notice}</p>
       </section>
@@ -130,14 +187,14 @@
                         <span class="file-symbol" class:video={file.category === 'Video'} class:photo={file.category === 'Foto'} aria-hidden="true">{file.kind}</span>
                       {/if}
                     </span>
-                    <div><span class="document-name">{file.name}</span><span class="document-kind">{file.selected ? 'Belum diunggah' : 'Contoh dokumen'}<span class="mobile-size"> · {formatSize(file.size)}</span></span></div>
+                    <div><span class="document-name">{file.name}</span><span class="document-kind">{file.selected ? 'Belum diunggah' : file.record?.uploaded_by_user_id === user.id ? 'Diunggah oleh Anda' : 'Lampiran rumah sakit'}<span class="mobile-size"> · {formatSize(file.size)}</span></span></div>
                   </div>
                 </td>
                 <td class="size-column">{formatSize(file.size)}</td>
                 <td class="action-column"><button class="detail-button" type="button" aria-label={`Lihat detail ${file.name}`} onclick={() => showDetail(file)}>Lihat</button></td>
               </tr>
             {:else}
-              <tr><td colspan="3" class="empty-state"><p>Dokumen tidak ditemukan.</p><button type="button" onclick={() => { search = ''; category = 'Semua' }}>Tampilkan semua</button></td></tr>
+              <tr><td colspan="3" class="empty-state"><p>{loadingFiles ? 'Memuat dokumen…' : documents.length === 0 ? 'Belum ada dokumen yang tersimpan.' : 'Dokumen tidak ditemukan.'}</p>{#if documents.length > 0}<button type="button" onclick={() => { search = ''; category = 'Semua' }}>Tampilkan semua</button>{/if}</td></tr>
             {/each}
           </tbody>
         </table>
@@ -156,9 +213,9 @@
       <span class="file-symbol dialog-symbol" aria-hidden="true">{detail.kind}</span>
     {/if}
     <h2 id="detail-title">{detail.name}</h2>
-    <p class="dialog-caption">{detail.selected ? 'Dokumen ini belum diunggah.' : 'Dokumen contoh.'}</p>
-    <dl><div><dt>Jenis</dt><dd>{detail.category}</dd></div><div><dt>Ukuran</dt><dd>{formatSize(detail.size)}</dd></div><div><dt>Status</dt><dd>{detail.selected ? 'Belum diunggah' : 'Contoh dokumen'}</dd></div></dl>
-    <DocumentPreview file={detail} localFile={detail.selected ? selectedFile : null} />
+    <p class="dialog-caption">{detail.selected ? 'Dokumen ini belum diunggah.' : 'Lampiran tersimpan pada profil pasien Anda.'}</p>
+    <dl><div><dt>Jenis</dt><dd>{detail.category}</dd></div><div><dt>Ukuran</dt><dd>{formatSize(detail.size)}</dd></div><div><dt>Status</dt><dd>{detail.selected ? 'Belum diunggah' : `Tersimpan (#${detail.record?.id})`}</dd></div></dl>
+    <DocumentPreview file={detail} localFile={detail.selected ? selectedFile : null} remoteFile={detail.record ?? null} onRemoteFileUpdated={updateRecord} {onUnauthorized} />
   {/if}
 </dialog>
 
