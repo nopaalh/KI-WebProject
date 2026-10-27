@@ -2,7 +2,9 @@
 
 ## Status dan scope
 
-Model/schema saja. Tidak ada implementasi RC4, service enkripsi/dekripsi, repository, endpoint, atau upload foto pada perubahan ini. Ciphertext tidak otomatis terbentuk hanya karena ada field `AES`/`DES`/`RC4`.
+Model/schema dan satu endpoint pembacaan data tersedia: `GET /api/patients/me/ktp`. Service memakai utilitas AES/DES/RC4 yang sudah ada untuk dekripsi dan memeriksa kesamaan hasil; repository membatasi user pemilik melalui relasi profil.
+
+**POST/create/upload KTP dan GET foto KTP belum diimplementasikan.** GET data membutuhkan record yang sudah tersimpan; fixture tes bersifat sintetis, bukan upload sungguhan. Kontrak request/response, error, serta status kelima endpoint pasien dipusatkan di [API.md — bagian 10](API.md#10-ktp-pasien).
 
 `PatientKTP` didaftarkan ke `AutoMigrate` yang sudah ada. Tabel akan dibuat saat backend dijalankan terhadap database yang dikonfigurasi; migration tidak dijalankan dalam sesi ini. Tidak ada SQL migration terpisah.
 
@@ -46,15 +48,15 @@ Setiap field berikut memiliki tiga kolom `bytea NOT NULL` dengan suffix `_aes`, 
 
 Total: **45 kolom ciphertext teks + 3 kolom ciphertext foto**, di samping `id` dan `patient_profile_id`. Foto dienkripsi lalu ciphertext-nya disimpan langsung di PostgreSQL, bukan filesystem, path, atau Base64.
 
-Field ciphertext dan association KTP tidak diekspos melalui serialisasi JSON model. Respons API terdekripsi perlu dirancang tersendiri ketika service dibuat.
+Field ciphertext dan association KTP tidak diekspos melalui serialisasi JSON model. Respons API terdekripsi memakai DTO tersendiri; kontraknya ada di API.md.
 
 ## Pekerjaan berikutnya, belum diimplementasikan
 
-- Ambil NIK profil sebagai sumber kebenaran dan pastikan NIK KTP konsisten. Foreign key tidak membuktikan kedua NIK sama; jangan mengandalkan constraint schema untuk pengecekan plaintext terenkripsi.
+- Endpoint create harus mengambil NIK profil sebagai sumber kebenaran sebelum penyimpanan. Endpoint read sudah memeriksa NIK KTP sama dengan NIK profil; foreign key sendiri tidak membuktikan kesamaan plaintext.
 - Validasi string NIK 16 digit, tanggal lahir, nilai pilihan, dan input lain sebelum enkripsi. Validasi panjang NIK tidak membuktikan identitas resmi atau kebenaran struktur wilayah/tanggal lahir.
 - Validasi file foto berdasarkan isi, ukuran, dan dimensi; jangan meninggalkan upload plaintext di disk.
 - Enkripsi dan autentikasi setiap field/foto dengan ketiga cipher sebelum penyimpanan; verifikasi round-trip bytes identik. Jangan simpan plaintext pada kolom bytea.
 - Simpan record KTP lengkap dalam satu transaksi PostgreSQL, dengan pemeriksaan role/ownership backend.
-- Bedakan nilai kosong/tidak diketahui dari data yang tidak disimpan: field schema NOT NULL, tetapi belum ada validasi isi/envelope di service.
+- Endpoint create perlu menetapkan aturan field kosong/tidak diketahui. Endpoint read sudah memeriksa envelope ketiga cipher, kesamaan plaintext, batas ukuran, dan UTF-8 teks.
 
-Schema ini **tidak membuktikan enkripsi, autentikasi ciphertext, konsistensi NIK, atau izin akses sudah berjalan**. Test saat ini hanya memeriksa metadata schema GORM dan serialisasi; PostgreSQL nyata belum diuji.
+Tes mencakup metadata schema/serialisasi, query owner-scoped dengan DryRun, endpoint read menggunakan cipher sungguhan dan repository in-memory, penolakan akses tidak sah, ciphertext rusak/tidak cocok, serta NIK yang berbeda. PostgreSQL nyata dan upload end-to-end belum diuji.
