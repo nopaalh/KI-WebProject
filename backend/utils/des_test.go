@@ -2,6 +2,8 @@ package utils
 
 import (
 	"bytes"
+	"crypto/des"
+	"math/rand/v2"
 	"slices"
 	"strconv"
 	"testing"
@@ -195,6 +197,43 @@ func TestDESFeistelFunction(t *testing.T) {
 
 	if want := bitsFromString("0010 0011 0100 1010 1010 1001 1011 1011"); !bytes.Equal(got, want) {
 		t.Fatalf("F(R0, K1) = %v, want %v", got, want)
+	}
+}
+
+func TestDESBytesAndBits(t *testing.T) {
+	data := []byte{0xA5, 0x00, 0xFF}
+
+	bits := DESBytesToBits(data)
+
+	if want := []byte{1, 0, 1, 0, 0, 1, 0, 1}; !bytes.Equal(bits[:8], want) {
+		t.Fatalf("0xA5 = %v, want %v", bits[:8], want)
+	}
+	if got := DESBitsToBytes(bits); !bytes.Equal(got, data) {
+		t.Fatalf("round trip = %x, want %x", got, data)
+	}
+}
+
+// Kunci dan blok acak (seed tetap) dibandingkan dengan crypto/des dari stdlib Go.
+func TestDESCryptMatchesStdlib(t *testing.T) {
+	random := rand.NewChaCha8([32]byte{1})
+	for i := 0; i < 100; i++ {
+		key, block := make([]byte, 8), make([]byte, 8)
+		random.Read(key)
+		random.Read(block)
+
+		stdlib, err := des.NewCipher(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := make([]byte, 8)
+		stdlib.Encrypt(want, block)
+
+		subkeys := DESSubKeyMaker(DESBytesToBits(key))
+		got := DESBitsToBytes(DESCrypt(DESBytesToBits(block), subkeys))
+
+		if !bytes.Equal(got, want) {
+			t.Fatalf("key %x block %x: got %x, want %x", key, block, got, want)
+		}
 	}
 }
 

@@ -224,6 +224,25 @@ func DESIntToBits(number, width int) []byte {
 	return bits
 }
 
+// DESBytesToBits mengubah bytes jadi bit, 8 bit per byte dengan bit terbesar di kiri.
+// 8 byte jadi 64 bit, siap dipakai DESSubKeyMaker dan DESCrypt.
+func DESBytesToBits(data []byte) []byte {
+	bits := make([]byte, 0, len(data)*8)
+	for _, b := range data {
+		bits = append(bits, DESIntToBits(int(b), 8)...)
+	}
+	return bits
+}
+
+// DESBitsToBytes kebalikan DESBytesToBits; panjang bits harus kelipatan 8.
+func DESBitsToBytes(bits []byte) []byte {
+	data := make([]byte, len(bits)/8)
+	for i := range data {
+		data[i] = byte(DESBitsToInt(bits[i*8 : i*8+8]))
+	}
+	return data
+}
+
 // DESSBoxSubstitution mereduksi 48 bit jadi 32 bit, tiap kelompok 6 bit masuk S-box miliknya sendiri
 // dan keluar sebagai 4 bit, lalu semuanya digabung berurutan.
 func DESSBoxSubstitution(input []byte) []byte {
