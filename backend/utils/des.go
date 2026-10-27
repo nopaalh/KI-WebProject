@@ -274,3 +274,15 @@ func DESCrypt(block []byte, subkeys [16][]byte) []byte {
 	}
 	return DESPermutation(DESMerge(r, l), desFP[:])
 }
+
+// desCTRStart adalah nilai counter pertama DES-CTR. Counter tidak rahasia dan tidak perlu acak,
+// yang penting tidak berulang; keamanan datang dari kunci DES yang unik per file.
+const desCTRStart = 3377
+
+// DESBlockFunc membungkus DESCrypt jadi fungsi satu blok berbasis byte (8 byte masuk, 8 byte keluar)
+// untuk dipakai CTRXor.
+func DESBlockFunc(subkeys [16][]byte) func([]byte) []byte {
+	return func(block []byte) []byte {
+		return DESBitsToBytes(DESCrypt(DESBytesToBits(block), subkeys))
+	}
+}
