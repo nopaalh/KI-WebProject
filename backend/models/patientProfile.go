@@ -16,4 +16,6 @@ type PatientProfile struct {
 	BPJSNumberAES []byte `gorm:"column:bpjs_number_aes;not null;check:patient_profiles_bpjs_aes_check,octet_length(bpjs_number_aes) > 0" json:"-"`
 	BPJSNumberDES []byte `gorm:"column:bpjs_number_des;not null;check:patient_profiles_bpjs_des_check,octet_length(bpjs_number_des) > 0" json:"-"`
 	BPJSNumberRC4 []byte `gorm:"column:bpjs_number_rc4;not null;check:patient_profiles_bpjs_rc4_check,octet_length(bpjs_number_rc4) > 0" json:"-"`
+
+	KTP *PatientKTP `gorm:"foreignKey:PatientProfileID;references:ID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT" json:"-"`
 }
