@@ -33,6 +33,53 @@ func TestDESSplit(t *testing.T) {
 	}
 }
 
+// bitsFromString mengubah teks "0101 ..." menjadi satu elemen per bit; selain 0 dan 1 diabaikan.
+func bitsFromString(s string) []byte {
+	var bits []byte
+	for _, char := range s {
+		if char == '0' || char == '1' {
+			bits = append(bits, byte(char-'0'))
+		}
+	}
+	return bits
+}
+
+func TestDESMerge(t *testing.T) {
+	plain := make([]byte, 64)
+	for i := range plain {
+		plain[i] = byte(i)
+	}
+
+	l0, r0 := DESSplit(plain)
+	merged := DESMerge(l0, r0)
+
+	if !bytes.Equal(merged, plain) {
+		t.Fatalf("merge(split(x)) = %v, want %v", merged, plain)
+	}
+	merged[0] = 99
+	if l0[0] == 99 || plain[0] == 99 {
+		t.Fatal("DESMerge berbagi memori dengan inputnya")
+	}
+}
+
+func TestDESKeyScheduleFirstRoundKey(t *testing.T) {
+	// Contoh kerja DES untuk kunci 133457799BBCDFF1: C0, D0, lalu K1 setelah rotasi 1 bit.
+	key := bitsFromString("00010011 00110100 01010111 01111001 10011011 10111100 11011111 11110001")
+
+	c, d := DESSplit(DESPermutation(key, desPC1[:]))
+	if want := bitsFromString("1111000011001100101010101111"); !bytes.Equal(c, want) {
+		t.Fatalf("C0 = %v, want %v", c, want)
+	}
+	if want := bitsFromString("0101010101100110011110001111"); !bytes.Equal(d, want) {
+		t.Fatalf("D0 = %v, want %v", d, want)
+	}
+
+	k1 := DESPermutation(DESMerge(DESRotateLeft(c, 1), DESRotateLeft(d, 1)), desPC2[:])
+	if want := bitsFromString("000110 110000 001011 101111 111111 000111 000001 110010"); !bytes.Equal(k1, want) {
+		t.Fatalf("K1 = %v, want %v", k1, want)
+	}
+}
+
 func TestDESRotateLeft(t *testing.T) {
 	bits := []byte{1, 2, 3, 4}
 	original := bytes.Clone(bits)

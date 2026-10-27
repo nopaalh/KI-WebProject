@@ -1,5 +1,7 @@
 package utils
 
+import "slices"
+
 // utility function
 // DESPermutation
 func DESPermutation(input []byte, table []byte) []byte {
@@ -16,6 +18,12 @@ func DESSplit(plain []byte) (l0, r0 []byte) {
 	r0 = plain[32:]
 
 	return l0, r0
+}
+
+// DESMerge menggabungkan c (kiri) dan d (kanan) menjadi satu slice baru.
+// Kebalikan DESSplit, tapi hasilnya tidak berbagi memori dengan c dan d.
+func DESMerge(c, d []byte) []byte {
+	return slices.Concat(c, d)
 }
 
 // DESRotateLeft memutar bits ke kiri sebanyak shift posisi, bit paling kiri pindah ke paling kanan.
