@@ -11,7 +11,8 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Penerbitan JWT saat login | Tersedia |
 | Middleware untuk verifikasi JWT / endpoint terproteksi | Tersedia; `AuthMiddleware` membaca cookie `access_token` |
 | Profil pengguna / endpoint `/me` | Tersedia; `GET /api/users/me` mengembalikan identitas dan role dari database |
-| Refresh token dan logout server-side | Belum tersedia |
+| Logout browser | Tersedia; `POST /api/users/logout` menghapus cookie HttpOnly, lihat bagian 5.1 |
+| Refresh token dan revokasi JWT server-side | Belum tersedia |
 | Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
 | Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
@@ -37,6 +38,7 @@ Semua endpoint yang tersedia:
 | --- | --- | --- | --- |
 | `POST` | `/api/users/register` | Tidak diperlukan | Membuat pengguna |
 | `POST` | `/api/users/login` | Tidak diperlukan | Mengatur cookie JWT `access_token` |
+| `POST` | `/api/users/logout` | Token valid tidak diwajibkan | Menghapus cookie `access_token`; idempotent, bukan revokasi JWT |
 | `GET` | `/api/users/me` | Cookie `access_token` | Identitas dan role terbaru user login; berbeda dari profil pasien |
 | `POST` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membuat profil pasien sendiri; kontrak di bagian 9 |
 | `GET` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membaca profil sendiri beserta NIK/BPJS terdekripsi; kontrak di bagian 9 |
@@ -254,7 +256,38 @@ Alur yang dapat diterapkan sekarang:
 
 Middleware membaca **cookie `access_token`**, bukan header `Authorization: Bearer ...`. Cookie hilang menghasilkan `401` dengan `message: "Missing authentication cookie"`; JWT invalid/kedaluwarsa menghasilkan `"Invalid or expired token"`. Claim ID tidak valid dapat menghasilkan `"Unauthorized: user_id missing"`; controller file juga dapat mengembalikan `"Unauthorized"`.
 
-Belum ada endpoint logout, penghapusan cookie, atau revokasi token server-side. Menghapus state UI **tidak** menghapus cookie `HttpOnly` dan **tidak** mengakhiri autentikasi backend; JavaScript tidak dapat menghapus cookie tersebut. Jangan menyebut reset UI sebagai logout yang aman.
+Logout browser tersedia melalui `POST /api/users/logout` di bawah. Menghapus state UI saja **tidak** menghapus cookie HttpOnly; frontend perlu memanggil endpoint logout. Revokasi JWT server-side belum tersedia.
+
+### 5.1. Logout — `POST /api/users/logout`
+
+Tidak memerlukan body atau Content-Type request. Tidak dipasang middleware autentikasi agar cookie tetap dapat dibersihkan walaupun token invalid/kedaluwarsa atau cookie sudah hilang. Berlaku untuk kedua role dan tidak melakukan query database.
+
+Respons **`200 OK`**, termasuk jika dipanggil berulang atau tanpa cookie:
+
+```json
+{
+  "message": "Logout successful"
+}
+```
+
+Backend mengirim `Set-Cookie` penghapusan `access_token` dengan nilai kosong dan Max-Age negatif (header `Max-Age=0`), menggunakan scope login yang sama: Path `/`, tanpa Domain eksplisit, HttpOnly, SameSite=Lax. Secure saat ini `false` mengikuti konfigurasi login lokal; ini bukan konfigurasi cookie produksi yang sudah diperkeras. Respons memakai `Cache-Control: no-store`.
+
+Contoh frontend:
+
+```js
+const response = await fetch(`${API_BASE_URL}/users/logout`, {
+  method: "POST",
+  credentials: "include"
+});
+if (!response.ok) {
+  throw new Error("Logout gagal; coba lagi.");
+}
+// Setelah browser memproses penghapusan cookie, bersihkan state user dan arahkan ke login.
+```
+
+Browser memproses penghapusan cookie; JavaScript tidak perlu dan tidak bisa menghapus cookie HttpOnly secara langsung. Setelah cookie terhapus, request endpoint terproteksi tanpa cookie mendapat `401`. `GET /api/users/logout` tidak melakukan logout.
+
+**Batas penting:** endpoint ini menghapus cookie pada browser tersebut, bukan mencabut JWT di backend atau logout semua perangkat. Salinan token yang sudah dicuri/disimpan di tempat lain tetap dapat dipakai sampai kedaluwarsa (saat ini 24 jam sejak login). Belum ada denylist/session revocation; jangan mengklaim logout ini membatalkan semua salinan token. Request yang sudah berjalan juga tidak otomatis dibatalkan.
 
 ## 6. Contoh integrasi JavaScript dengan fetch
 
