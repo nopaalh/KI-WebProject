@@ -57,10 +57,15 @@ func main() {
 	profileService := services.NewPatientProfileService(profileRepo, userRepo, fileKey)
 	profileController := controllers.NewPatientProfileController(profileService)
 
+	ktpRepo := repositories.NewPatientKTPRepository(config.DB)
+	ktpService := services.NewPatientKTPService(ktpRepo, profileService, fileKey)
+	ktpController := controllers.NewPatientKTPController(ktpService)
+
 	r := routers.SetupRouter(routers.Controller{
 		AuthController:           authController,
 		FileController:           fileController,
 		PatientProfileController: profileController,
+		PatientKTPController:     ktpController,
 	})
 
 	PORT := os.Getenv("SERVER_PORT")
