@@ -120,7 +120,7 @@ Register **tidak** mengembalikan token, ID, atau objek pengguna. Setelah sukses,
 | Status | Kondisi | `message` |
 | --- | --- | --- |
 | `400 Bad Request` | JSON tidak valid, tipe field salah, atau field wajib kosong/tidak dikirim | Detail error binding/validasi dari Gin; teksnya bergantung pada input |
-| `409 Conflict` | Username ditemukan sudah terdaftar saat pengecekan | `username already exist` |
+| `409 Conflict` | Database menolak username yang sudah terdaftar | `username already exist` |
 | `500 Internal Server Error` | Hash password atau penyimpanan ke database gagal | Pesan error dari operasi yang gagal |
 
 Contoh username sudah dipakai:
@@ -139,7 +139,7 @@ Contoh validasi ketika hanya `name` yang kosong:
 }
 ```
 
-Contoh tersebut bukan teks tetap untuk semua `400`. Gunakan status HTTP untuk menentukan perilaku UI; jangan parsing string validasi Gin. Kegagalan insert karena benturan username yang terjadi setelah pengecekan awal juga bisa masuk sebagai `500`, sehingga tidak semua kasus duplikat dijamin menghasilkan `409`.
+Contoh tersebut bukan teks tetap untuk semua `400`. Gunakan status HTTP untuk menentukan perilaku UI; jangan parsing string validasi Gin. Benturan unique constraint PostgreSQL saat penyimpanan dipetakan ke `409`, termasuk jika dua permintaan mendaftarkan username yang sama bersamaan.
 
 ### Contoh curl
 
