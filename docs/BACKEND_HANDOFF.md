@@ -71,7 +71,7 @@ Ketentuan backend:
 - Register publik, jika disediakan, **hanya membuat pasien**. Mengirim `role: doctor` tidak boleh memberikan hak petugas.
 - Akun petugas dibuat/disediakan pengelola; tidak perlu membangun dashboard admin hanya untuk memenuhi hal ini.
 - Gunakan **role-based access control ditambah patient ownership** pada setiap endpoint terkait, termasuk detail, download, lampiran, dan history.
-- `user_id` pengunggah saja tidak cukup: dokumen yang diunggah dokter untuk pasien harus dapat diambil pasien yang bersangkutan. Relasi pasien pemilik/subjek data dan identitas pengunggah/penulis perlu dibedakan.
+- `user_id` pengunggah saja tidak cukup: dokumen yang diunggah dokter untuk pasien harus dapat diambil pasien yang bersangkutan. Implementasi lampiran sekarang mempertahankan files.user_id sebagai pengunggah dan memakai files.patient_profile_id sebagai pasien subjek. Directory dokter, upload/list bertarget, serta akses file berdasarkan role/subject tersedia; kontrak dan aturan legacy ada di API.md bagian 12. Ini belum implementasi rekam medis atau akses dokter ke detail profil/KTP.
 - UI yang menyembunyikan tombol bukan mekanisme otorisasi. Backend tidak mempercayai role atau identitas pasien dari request tanpa memeriksa kewenangannya.
 - Belum ada pembatasan berdasarkan dokter yang ditugaskan ke pasien; fitur tersebut sengaja di luar scope.
 
