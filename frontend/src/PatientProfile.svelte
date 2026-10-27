@@ -1,25 +1,56 @@
 <script lang="ts">
-  let { user }: { user: { name: string; username: string } } = $props()
-  type Profile = { age?: number; weight_kg?: number; height_cm?: number; nik: string; bpjs_number: string }
-  const empty: Profile = { nik: '', bpjs_number: '' }
-  let profile = $state<Profile | null>(null)
-  let draft = $state<Profile>({ ...empty })
-  let editing = $state(true)
+  import { onMount } from 'svelte'
+  import { ApiError, apiCreatePatientProfile, apiGetPatientProfile, type PatientProfileData } from './api'
+
+  let { user, onUnauthorized }: { user: { name: string; username: string }; onUnauthorized?: () => void } = $props()
+  type ProfileDraft = { age?: number; weight_kg?: number; height_cm?: number; nik: string; bpjs_number: string }
+  let profile = $state<PatientProfileData | null>(null)
+  let draft = $state<ProfileDraft>({ nik: '', bpjs_number: '' })
+  let loading = $state(true)
+  let submitting = $state(false)
   let showNumbers = $state(false)
   let notice = $state('')
 
-  function save(event: SubmitEvent) {
-    event.preventDefault()
-    profile = { ...draft }
-    editing = false
-    showNumbers = false
-    notice = 'Profil disimpan sementara di halaman ini. Data belum dikirim dan akan hilang saat halaman dimuat ulang.'
+  onMount(() => {
+    const controller = new AbortController()
+    void loadProfile(controller.signal)
+    return () => controller.abort()
+  })
+
+  async function loadProfile(signal?: AbortSignal) {
+    loading = true
+    try {
+      profile = await apiGetPatientProfile(signal)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized?.(); return }
+      if (err instanceof ApiError && err.status === 404) { profile = null }
+      else notice = err instanceof ApiError && err.isNetworkError ? 'Tidak dapat terhubung ke layanan profil.' : 'Gagal memuat profil pasien.'
+    } finally {
+      loading = false
+    }
   }
 
-  function edit() {
-    draft = { ...(profile ?? empty) }
-    editing = true
+  async function save(event: SubmitEvent) {
+    event.preventDefault()
+    if (submitting || profile) return
+    if (draft.age === undefined || draft.weight_kg === undefined || draft.height_cm === undefined) {
+      notice = 'Lengkapi semua kolom profil pasien.'
+      return
+    }
+    submitting = true
     notice = ''
+    try {
+      await apiCreatePatientProfile({ age: Number(draft.age), weight_kg: Number(draft.weight_kg), height_cm: Number(draft.height_cm), nik: draft.nik.trim(), bpjs_number: draft.bpjs_number.trim() })
+      notice = 'Profil pasien berhasil dibuat.'
+      await loadProfile()
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized?.(); return }
+      if (err instanceof ApiError && err.status === 409) { notice = 'Profil sudah terdaftar.'; await loadProfile(); return }
+      notice = err instanceof ApiError && err.status === 400 ? 'Periksa kembali format NIK (16 digit), BPJS (13 digit), dan ukuran tubuh.' : 'Gagal menyimpan profil pasien.'
+    } finally {
+      submitting = false
+    }
   }
 </script>
 
@@ -29,27 +60,29 @@
     <aside class="patient-card identity">
       <img src="/images/portal-mark.svg" width="38" height="38" alt="" />
       <h2>{user.name}</h2><p>@{user.username}</p>
-      <dl><div><dt>Jenis akun</dt><dd>Pasien</dd></div><div><dt>Profil pasien</dt><dd>{profile ? 'Sudah diisi di halaman ini' : 'Belum dilengkapi'}</dd></div></dl>
+      <dl><div><dt>Jenis akun</dt><dd>Pasien</dd></div><div><dt>Profil pasien</dt><dd>{loading ? 'Memeriksa…' : profile ? 'Sudah terdaftar' : 'Belum dilengkapi'}</dd></div></dl>
       <p class="patient-note">Nama dan username mengikuti identitas akun Anda.</p>
     </aside>
 
     <section class="patient-card profile-card" aria-labelledby="personal-title">
-      <div class="section-heading"><div><h2 id="personal-title">Data diri</h2><p>Lengkapi data sesuai identitas Anda.</p></div>{#if !editing}<button class="patient-button secondary" type="button" onclick={edit}>Ubah data</button>{/if}</div>
-      {#if editing}
-        <form onsubmit={save}>
-          <fieldset class="measurements"><legend>Informasi dasar</legend>
+      <div class="section-heading"><div><h2 id="personal-title">Data diri</h2><p>{profile ? 'Data profil pasien yang tersimpan pada akun Anda.' : 'Lengkapi data sesuai identitas Anda.'}</p></div></div>
+      {#if loading}
+        <p class="patient-note" role="status">Memuat profil pasien…</p>
+      {:else if !profile}
+        <form onsubmit={save} aria-busy={submitting}>
+          <fieldset class="measurements" disabled={submitting}><legend>Informasi dasar</legend>
             <div><label for="patient-age">Umur</label><div class="unit-field"><input id="patient-age" name="age" type="number" min="0" max="150" step="1" bind:value={draft.age} placeholder="Contoh: 21" required /><span>tahun</span></div></div>
             <div><label for="patient-weight">Berat badan</label><div class="unit-field"><input id="patient-weight" name="weight_kg" type="number" min="0.01" max="9999.99" step="0.01" bind:value={draft.weight_kg} placeholder="Contoh: 65,5" required /><span>kg</span></div></div>
             <div><label for="patient-height">Tinggi badan</label><div class="unit-field"><input id="patient-height" name="height_cm" type="number" min="0.01" max="9999.99" step="0.01" bind:value={draft.height_cm} placeholder="Contoh: 170" required /><span>cm</span></div></div>
           </fieldset>
-          <fieldset class="identity-fields"><legend>Identitas pasien</legend>
+          <fieldset class="identity-fields" disabled={submitting}><legend>Identitas pasien</legend>
             <div><label for="patient-nik">NIK</label><input id="patient-nik" name="nik" type="text" inputmode="numeric" pattern={'[0-9]{16}'} minlength="16" maxlength="16" bind:value={draft.nik} autocomplete="off" placeholder="16 digit NIK" aria-describedby="nik-help" required /><p id="nik-help" class="field-help">Nomor yang tercantum pada kartu identitas.</p></div>
             <div><label for="patient-bpjs">Nomor BPJS</label><input id="patient-bpjs" name="bpjs_number" type="text" inputmode="numeric" pattern={'[0-9]{13}'} minlength="13" maxlength="13" bind:value={draft.bpjs_number} autocomplete="off" placeholder="13 digit nomor BPJS" required /><p class="field-help">Gunakan nomor tanpa spasi atau tanda baca.</p></div>
           </fieldset>
-          <div class="form-actions"><button class="patient-button" type="submit">Simpan profil</button>{#if profile}<button class="patient-button secondary" type="button" onclick={() => { editing = false; draft = { ...profile! } }}>Batal</button>{/if}</div>
-          <p class="patient-note">Pengisian ini hanya tersimpan sementara pada halaman, belum pada akun Anda.</p>
+          <div class="form-actions"><button class="patient-button" type="submit" disabled={submitting}>{submitting ? 'Menyimpan…' : 'Simpan profil'}</button></div>
+          <p class="patient-note">Pembaruan atau penghapusan profil belum tersedia pada layanan saat ini.</p>
         </form>
-      {:else if profile}
+      {:else}
         <dl class="profile-values"><div><dt>Umur</dt><dd>{profile.age} tahun</dd></div><div><dt>Berat badan</dt><dd>{profile.weight_kg} kg</dd></div><div><dt>Tinggi badan</dt><dd>{profile.height_cm} cm</dd></div></dl>
         <div class="identity-summary"><div class="numbers-heading"><h3>Identitas pasien</h3><button class="text-button" type="button" aria-pressed={showNumbers} onclick={() => showNumbers = !showNumbers}>{showNumbers ? 'Sembunyikan nomor' : 'Tampilkan nomor'}</button></div><dl><div><dt>NIK</dt><dd>{showNumbers ? profile.nik : '•••• •••• •••• ' + profile.nik.slice(-4)}</dd></div><div><dt>Nomor BPJS</dt><dd>{showNumbers ? profile.bpjs_number : '•••• ••••• ' + profile.bpjs_number.slice(-4)}</dd></div></dl></div>
       {/if}
