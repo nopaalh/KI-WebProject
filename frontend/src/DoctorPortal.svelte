@@ -2,12 +2,21 @@
   import { tick } from 'svelte'
   import MedicalRecords from './MedicalRecords.svelte'
   import { exampleDoctorPatients } from './doctorExamples'
+  import type { MedicalVersion } from './patientExamples'
 
   let { user }: { user: { name: string; username: string } } = $props()
   let patients = $state(structuredClone(exampleDoctorPatients))
   let selectedId = $state<number | null>(null)
   let search = $state('')
   let recordId = $state<number | null>(null)
+  let editing = $state(false)
+  let title = $state('')
+  let department = $state('')
+  let summary = $state('')
+  let note = $state('')
+  let original = ''
+  let notice = $state('')
+  let editorForm = $state<HTMLFormElement>()
   const patient = $derived(patients.find(item => item.id === selectedId))
   const filtered = $derived(patients.filter(item => `${item.name} ${item.reference}`.toLowerCase().includes(search.trim().toLowerCase())))
   const draftCount = $derived(patients.reduce((count, item) => count + item.records.filter(record => record.versions[0]?.status === 'Draf').length, 0))
@@ -15,8 +24,47 @@
   async function openPatient(id: number) {
     selectedId = id
     recordId = null
+    notice = ''
     await tick()
     document.querySelector<HTMLElement>('.patient-summary h1')?.focus()
+  }
+
+  async function edit() {
+    title = ''
+    department = ''
+    summary = ''
+    note = ''
+    original = JSON.stringify([title, department, summary, note])
+    editing = true
+    notice = ''
+    await tick()
+    editorForm?.querySelector('input')?.focus()
+  }
+
+  function cancelEdit() {
+    if (original !== JSON.stringify([title, department, summary, note]) && !window.confirm('Buang perubahan catatan yang belum disimpan?')) return
+    editing = false
+  }
+
+  function save(status: MedicalVersion['status']) {
+    if (!patient || !editorForm?.reportValidity()) return
+    if (![title, department, summary, note].every(value => value.trim())) {
+      notice = 'Lengkapi semua kolom dengan isi yang benar.'
+      return
+    }
+    const version: MedicalVersion = {
+      version: 1,
+      date: new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeStyle: 'short' }).format(new Date()),
+      author: user.name,
+      status,
+      summary: summary.trim(),
+      note: note.trim(),
+    }
+      const id = Math.max(0, ...patient.records.map(item => item.id)) + 1
+      patient.records.unshift({ id, title: title.trim(), department: department.trim(), reference: `${patient.reference}-RM-${String(id).padStart(3, '0')}`, versions: [version] })
+      recordId = id
+    editing = false
+    notice = `Versi ${version.version} disimpan sebagai ${status.toLowerCase()} di halaman ini. Belum dikirim ke rumah sakit; perubahan hilang saat halaman dimuat ulang.`
   }
 
 
@@ -37,10 +85,25 @@
 {:else}
   <div class="doctor-workspace">
     <section class="patient-summary" aria-label="Pasien yang sedang dibuka">
-      <button class="text-button" type="button" onclick={() => selectedId = null}>Semua pasien</button>
+      <button class="text-button" type="button" disabled={editing} onclick={() => selectedId = null}>Semua pasien</button>
       <div class="summary-row"><div class="summary-name"><span class="avatar large" aria-hidden="true">{patient.name.split(' ').map(part => part[0]).join('')}</span><div><p class="eyebrow">{patient.reference} · Data contoh</p><h1 tabindex="-1">{patient.name}</h1></div></div><dl><div><dt>Usia</dt><dd>{patient.age} tahun</dd></div><div><dt>Berat badan</dt><dd>{patient.weight} kg</dd></div><div><dt>Tinggi badan</dt><dd>{patient.height} cm</dd></div></dl></div>
     </section>
-    {#key patient.id}<MedicalRecords records={patient.records} bind:selectedId={recordId} />{/key}
+    {#if editing}
+      <main class="patient-page editor-page">
+        <header class="patient-heading"><h1 class="patient-title">Catatan baru</h1><p class="patient-subtitle">{patient.name} · Mulai catatan pemeriksaan untuk pasien ini.</p></header>
+        <form class="patient-card record-editor" bind:this={editorForm} onsubmit={event => { event.preventDefault(); save('Draf') }}>
+          <div class="editor-fields"><label>Nama pemeriksaan<input bind:value={title} required maxlength="120" placeholder="Contoh: Pemeriksaan MRI" /></label><label>Unit layanan<input bind:value={department} required maxlength="80" placeholder="Contoh: Radiologi" /></label></div>
+          <label>Ringkasan<input bind:value={summary} required maxlength="240" placeholder="Tuliskan perkembangan pemeriksaan" /></label>
+          <label>Catatan pemeriksaan<textarea bind:value={note} required maxlength="20000" rows="10" placeholder="Tuliskan hasil, perkembangan, atau catatan pemeriksaan pasien."></textarea></label>
+          <p class="patient-note">Draf dapat dibaca pasien ketika layanan rekam medis tersambung. Pastikan setiap catatan sudah layak dibagikan. Pada tampilan ini, perubahan hanya disimpan sementara.</p>
+          {#if notice}<p class="patient-message" role="status">{notice}</p>{/if}
+          <div class="editor-actions"><button class="text-button cancel-edit" type="button" onclick={cancelEdit}>Batal</button><button class="patient-button secondary" type="submit">Simpan draf</button></div>
+        </form>
+      </main>
+    {:else}
+      <div class="record-actions"><p class="patient-note" role="status">{notice || 'Data contoh. Catatan belum terhubung ke layanan rumah sakit.'}</p><button class="patient-button" type="button" onclick={() => edit()}>Catatan baru</button></div>
+      {#key patient.id}<MedicalRecords records={patient.records} bind:selectedId={recordId} />{/key}
+    {/if}
   </div>
 {/if}
 
