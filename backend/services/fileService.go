@@ -34,13 +34,19 @@ var (
 	ErrFileIntegrity         = errors.New("encrypted file is unavailable or failed integrity verification")
 	ErrInvalidFileAlgorithm  = errors.New("algorithm must be aes, des, or rc4")
 	ErrFileCipherUnavailable = errors.New("requested cipher is unavailable for this legacy file; upload the original again")
+	ErrInvalidPatientID      = errors.New("invalid patient profile ID")
 )
 
 type fileRepository interface {
 	UploadFile(*models.File) error
-	ListByUserID(userID uint) ([]models.File, error)
-	FindByIDAndUserID(fileID, userID uint) (*models.File, error)
-	UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error
+	ListAccessible(userID uint, role string, patientProfileID *uint) ([]models.File, error)
+	FindAccessibleByID(fileID, userID uint, role string) (*models.File, error)
+	UpdateDecryptTime(fileID, userID uint, role, algorithm string, durationNS int64) error
+}
+
+type filePatientReader interface {
+	FindByID(uint) (*models.PatientProfile, error)
+	FindByUserID(uint) (*models.PatientProfile, error)
 }
 
 type fileCipher struct {
@@ -51,13 +57,15 @@ type fileCipher struct {
 
 type FileService struct {
 	fileRepo   fileRepository
+	users      currentUserReader
+	patients   filePatientReader
 	storageDir string
 	key        [utils.AESFileKeySize]byte
 	ciphers    []fileCipher
 	createTemp func(string, string) (*os.File, error)
 }
 
-func NewFileService(fRepo fileRepository, storageDir string, key [utils.AESFileKeySize]byte) (*FileService, error) {
+func NewFileService(fRepo fileRepository, users currentUserReader, patients filePatientReader, storageDir string, key [utils.AESFileKeySize]byte) (*FileService, error) {
 	if storageDir == "" {
 		return nil, errors.New("file storage directory is required")
 	}
@@ -68,8 +76,11 @@ func NewFileService(fRepo fileRepository, storageDir string, key [utils.AESFileK
 	if err := os.MkdirAll(absoluteDir, 0700); err != nil {
 		return nil, fmt.Errorf("create file storage directory: %w", err)
 	}
+	if fRepo == nil || users == nil || patients == nil {
+		return nil, errors.New("file, user, and patient repositories are required")
+	}
 	return &FileService{
-		fileRepo: fRepo, storageDir: absoluteDir, key: key, createTemp: os.CreateTemp,
+		fileRepo: fRepo, users: users, patients: patients, storageDir: absoluteDir, key: key, createTemp: os.CreateTemp,
 		ciphers: []fileCipher{
 			{"aes", utils.EncryptAESFile, utils.DecryptAESFile},
 			{"des", utils.EncryptDESFile, utils.DecryptDESFile},
@@ -78,7 +89,54 @@ func NewFileService(fRepo fileRepository, storageDir string, key [utils.AESFileK
 	}, nil
 }
 
-func (s *FileService) Upload(userID uint, file *multipart.FileHeader) (saved *models.File, err error) {
+func (s *FileService) Upload(userID uint, file *multipart.FileHeader) (*models.File, error) {
+	actor, err := authorizeUser(s.users, userID, models.RolePatient)
+	if err != nil {
+		return nil, err
+	}
+	patient, err := s.patients.FindByUserID(actor.ID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find upload patient: %w", err)
+	}
+	if patient == nil || patient.ID == 0 || patient.UserID != actor.ID || patient.UserRole != models.RolePatient {
+		return nil, ErrFileIntegrity
+	}
+	return s.uploadForPatient(actor.ID, patient.ID, file)
+}
+
+func (s *FileService) UploadForPatient(userID, patientProfileID uint, file *multipart.FileHeader) (*models.File, error) {
+	actor, err := authorizeUser(s.users, userID, models.RoleDoctor)
+	if err != nil {
+		return nil, err
+	}
+	patient, err := s.findPatient(patientProfileID)
+	if err != nil {
+		return nil, err
+	}
+	return s.uploadForPatient(actor.ID, patient.ID, file)
+}
+
+func (s *FileService) findPatient(patientProfileID uint) (*models.PatientProfile, error) {
+	if patientProfileID == 0 {
+		return nil, ErrInvalidPatientID
+	}
+	patient, err := s.patients.FindByID(patientProfileID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find attachment patient: %w", err)
+	}
+	if patient == nil || patient.ID != patientProfileID || patient.UserID == 0 || patient.UserRole != models.RolePatient {
+		return nil, ErrFileIntegrity
+	}
+	return patient, nil
+}
+
+func (s *FileService) uploadForPatient(userID, patientProfileID uint, file *multipart.FileHeader) (saved *models.File, err error) {
 	if userID == 0 {
 		return nil, ErrInvalidUser
 	}
@@ -101,7 +159,7 @@ func (s *FileService) Upload(userID uint, file *multipart.FileHeader) (saved *mo
 		return nil, ErrFileTooLarge
 	}
 	newFile := &models.File{
-		UserID: userID, OriginalSize: int64(len(plaintext)), CipherSetVersion: 1,
+		UserID: userID, PatientProfileID: &patientProfileID, OriginalSize: int64(len(plaintext)), CipherSetVersion: 1,
 		OriginalName: filepath.Base(strings.ReplaceAll(file.Filename, "\\", "/")),
 		OriginalType: file.Header.Get("Content-Type"),
 	}
@@ -160,28 +218,43 @@ func (s *FileService) Upload(userID uint, file *multipart.FileHeader) (saved *mo
 }
 
 func (s *FileService) List(userID uint) ([]models.File, error) {
-	if userID == 0 {
-		return nil, ErrInvalidUser
-	}
-	files, err := s.fileRepo.ListByUserID(userID)
+	actor, err := authorizeUser(s.users, userID, models.RolePatient, models.RoleDoctor)
 	if err != nil {
-		return nil, fmt.Errorf("list files: %w", err)
+		return nil, err
 	}
-	return files, nil
+	return s.fileRepo.ListAccessible(actor.ID, actor.Role, nil)
+}
+
+func (s *FileService) ListForPatient(userID, patientProfileID uint) ([]models.File, error) {
+	actor, err := authorizeUser(s.users, userID, models.RoleDoctor)
+	if err != nil {
+		return nil, err
+	}
+	patient, err := s.findPatient(patientProfileID)
+	if err != nil {
+		return nil, err
+	}
+	return s.fileRepo.ListAccessible(actor.ID, actor.Role, &patient.ID)
 }
 
 func (s *FileService) FindByID(userID, fileID uint) (*models.File, error) {
-	if userID == 0 {
-		return nil, ErrInvalidUser
+	file, _, err := s.findAccessible(userID, fileID)
+	return file, err
+}
+
+func (s *FileService) findAccessible(userID, fileID uint) (*models.File, *models.User, error) {
+	actor, err := authorizeUser(s.users, userID, models.RolePatient, models.RoleDoctor)
+	if err != nil {
+		return nil, nil, err
 	}
-	file, err := s.fileRepo.FindByIDAndUserID(fileID, userID)
+	file, err := s.fileRepo.FindAccessibleByID(fileID, actor.ID, actor.Role)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrFileNotFound
+		return nil, nil, ErrFileNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("find file: %w", err)
+		return nil, nil, fmt.Errorf("find file: %w", err)
 	}
-	return file, nil
+	return file, actor, nil
 }
 
 func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.File, []byte, error) {
@@ -191,7 +264,7 @@ func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.Fi
 	if algorithm != "aes" && algorithm != "des" && algorithm != "rc4" {
 		return nil, nil, ErrInvalidFileAlgorithm
 	}
-	file, err := s.FindByID(userID, fileID)
+	file, actor, err := s.findAccessible(userID, fileID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -237,7 +310,7 @@ func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.Fi
 			selectedDuration = duration
 		}
 	}
-	if err := s.fileRepo.UpdateDecryptTime(file.ID, userID, algorithm, selectedDuration); err != nil {
+	if err := s.fileRepo.UpdateDecryptTime(file.ID, actor.ID, actor.Role, algorithm, selectedDuration); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, ErrFileNotFound
 		}

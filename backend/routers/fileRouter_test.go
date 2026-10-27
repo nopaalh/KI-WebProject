@@ -44,13 +44,13 @@ func (r *memoryFileRepository) UploadFile(file *models.File) error {
 	return nil
 }
 
-func (r *memoryFileRepository) ListByUserID(userID uint) ([]models.File, error) {
+func (r *memoryFileRepository) ListAccessible(userID uint, role string, patientID *uint) ([]models.File, error) {
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
 	files := make([]models.File, 0)
 	for _, file := range r.files {
-		if file.UserID == userID {
+		if fileRouteVisible(file, userID, role, patientID) {
 			files = append(files, file)
 		}
 	}
@@ -58,23 +58,23 @@ func (r *memoryFileRepository) ListByUserID(userID uint) ([]models.File, error) 
 	return files, nil
 }
 
-func (r *memoryFileRepository) FindByIDAndUserID(fileID, userID uint) (*models.File, error) {
+func (r *memoryFileRepository) FindAccessibleByID(fileID, userID uint, role string) (*models.File, error) {
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
 	file, ok := r.files[fileID]
-	if !ok || file.UserID != userID {
+	if !ok || !fileRouteVisible(file, userID, role, nil) {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return &file, nil
 }
 
-func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
+func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, role, algorithm string, durationNS int64) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}
 	file, ok := r.files[fileID]
-	if !ok || file.UserID != userID {
+	if !ok || !fileRouteVisible(file, userID, role, nil) {
 		return gorm.ErrRecordNotFound
 	}
 	switch algorithm {
@@ -97,6 +97,8 @@ type fileRouteFixture struct {
 	repo       *memoryFileRepository
 	storageDir string
 	token      string
+	users      *fileRouteUsers
+	patients   *fileRoutePatients
 }
 
 func newFileRouteFixture(t *testing.T) *fileRouteFixture {
@@ -108,16 +110,19 @@ func newFileRouteFixture(t *testing.T) *fileRouteFixture {
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	service, err := services.NewFileService(repo, storageDir, key)
+	users := &fileRouteUsers{roles: make(map[uint]string)}
+	patients := &fileRoutePatients{}
+	service, err := services.NewFileService(repo, users, patients, storageDir, key)
 	if err != nil {
 		t.Fatalf("create real file service: %v", err)
 	}
 	controller := controllers.NewFileController(service)
 	router := gin.New()
 	RegisterFileRouter(router.Group("/api"), controller)
+	RegisterDoctorRouter(router.Group("/api"), controllers.NewDoctorController(services.NewDoctorService(users, &fileRouteDirectory{})), controller)
 	return &fileRouteFixture{
 		router: router, controller: controller, repo: repo,
-		storageDir: storageDir, token: fileRouteToken(t, 7),
+		storageDir: storageDir, token: fileRouteToken(t, 7), users: users, patients: patients,
 	}
 }
 
@@ -169,6 +174,8 @@ func fileRouteMultipart(t *testing.T, filename string, data []byte, padding int)
 
 type fileRouteMetadata struct {
 	ID               uint     `json:"id"`
+	UploadedByUserID uint     `json:"uploaded_by_user_id"`
+	PatientProfileID *uint    `json:"patient_profile_id"`
 	OriginalName     string   `json:"original_name"`
 	OriginalSize     int64    `json:"original_size"`
 	OriginalType     string   `json:"original_type"`

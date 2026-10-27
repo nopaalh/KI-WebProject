@@ -21,6 +21,18 @@ func NewFileController(fileService *services.FileService) *FileController {
 }
 
 func (c *FileController) Upload(ctx *gin.Context) {
+	c.upload(ctx, nil)
+}
+
+func (c *FileController) UploadForPatient(ctx *gin.Context) {
+	patientID, ok := filePatientParam(ctx)
+	if !ok {
+		return
+	}
+	c.upload(ctx, &patientID)
+}
+
+func (c *FileController) upload(ctx *gin.Context, patientID *uint) {
 	userID, ok := fileUserID(ctx)
 	if !ok {
 		return
@@ -46,7 +58,12 @@ func (c *FileController) Upload(ctx *gin.Context) {
 		return
 	}
 
-	saved, err := c.FileService.Upload(userID, file)
+	var saved *models.File
+	if patientID == nil {
+		saved, err = c.FileService.Upload(userID, file)
+	} else {
+		saved, err = c.FileService.UploadForPatient(userID, *patientID, file)
+	}
 	if err != nil {
 		fileError(ctx, err)
 		return
@@ -58,12 +75,30 @@ func (c *FileController) Upload(ctx *gin.Context) {
 }
 
 func (c *FileController) List(ctx *gin.Context) {
+	c.list(ctx, nil)
+}
+
+func (c *FileController) ListForPatient(ctx *gin.Context) {
+	patientID, ok := filePatientParam(ctx)
+	if !ok {
+		return
+	}
+	c.list(ctx, &patientID)
+}
+
+func (c *FileController) list(ctx *gin.Context, patientID *uint) {
 	userID, ok := fileUserID(ctx)
 	if !ok {
 		return
 	}
 	ctx.Header("Cache-Control", "no-store")
-	files, err := c.FileService.List(userID)
+	var files []models.File
+	var err error
+	if patientID == nil {
+		files, err = c.FileService.List(userID)
+	} else {
+		files, err = c.FileService.ListForPatient(userID, *patientID)
+	}
 	if err != nil {
 		fileError(ctx, err)
 		return
@@ -136,6 +171,8 @@ func fileResponse(file *models.File) gin.H {
 	}
 	return gin.H{
 		"id":                  file.ID,
+		"uploaded_by_user_id": file.UserID,
+		"patient_profile_id":  file.PatientProfileID,
 		"original_name":       file.OriginalName,
 		"original_size":       file.OriginalSize,
 		"original_type":       file.OriginalType,
@@ -161,6 +198,15 @@ func fileUserID(ctx *gin.Context) (uint, bool) {
 	return userID, true
 }
 
+func filePatientParam(ctx *gin.Context) (uint, bool) {
+	id, err := strconv.ParseUint(ctx.Param("patient_profile_id"), 10, strconv.IntSize-1)
+	if err != nil || id == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid patient profile ID"})
+		return 0, false
+	}
+	return uint(id), true
+}
+
 func fileIDParam(ctx *gin.Context) (uint, bool) {
 	id, err := strconv.ParseUint(ctx.Param("id"), 10, strconv.IntSize)
 	if err != nil || id == 0 {
@@ -174,6 +220,12 @@ func fileError(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrInvalidUser):
 		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+	case errors.Is(err, services.ErrAccessForbidden):
+		ctx.JSON(http.StatusForbidden, gin.H{"message": "Forbidden"})
+	case errors.Is(err, services.ErrProfileNotFound):
+		ctx.JSON(http.StatusNotFound, gin.H{"message": "Patient profile not found"})
+	case errors.Is(err, services.ErrInvalidPatientID):
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Invalid patient profile ID"})
 	case errors.Is(err, services.ErrInvalidFileAlgorithm):
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 	case errors.Is(err, services.ErrFileCipherUnavailable):

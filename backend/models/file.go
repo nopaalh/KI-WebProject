@@ -1,8 +1,10 @@
 package models
 
 type File struct {
-	ID     uint `gorm:"primaryKey"`
-	UserID uint `gorm:"not null;index"`
+	ID uint `gorm:"primaryKey"`
+	// UserID identifies the uploader, not the patient who is the file's subject.
+	UserID           uint  `gorm:"not null;index"`
+	PatientProfileID *uint `gorm:"index"`
 
 	OriginalName string `gorm:"not null"`
 	OriginalSize int64  `gorm:"not null"`
