@@ -77,7 +77,7 @@ func sendProfile(router http.Handler, token, body, contentType string) *httptest
 	return response
 }
 
-func TestCreatePatientProfileEncryptsAESAndDES(t *testing.T) {
+func TestCreatePatientProfileEncryptsAESDESAndRC4(t *testing.T) {
 	router, repo, users, key, token := profileRouteFixture(t)
 	response := sendProfile(router, token, validProfileJSON, "application/json")
 	if response.Code != http.StatusCreated {
@@ -90,14 +90,13 @@ func TestCreatePatientProfileEncryptsAESAndDES(t *testing.T) {
 	if users.calls != 1 {
 		t.Fatalf("role must be loaded from the database once, got %d lookups", users.calls)
 	}
-	if p.NIKRC4 != nil || p.BPJSNumberRC4 != nil {
-		t.Fatal("RC4 must remain NULL, not contain placeholder bytes")
-	}
+
 	for _, tt := range []struct {
 		value string
 		aes   []byte
 		des   []byte
-	}{{"0000000000000001", p.NIKAES, p.NIKDES}, {"0000000000001", p.BPJSNumberAES, p.BPJSNumberDES}} {
+		rc4   []byte
+	}{{"0000000000000001", p.NIKAES, p.NIKDES, p.NIKRC4}, {"0000000000001", p.BPJSNumberAES, p.BPJSNumberDES, p.BPJSNumberRC4}} {
 		aes, err := utils.DecryptAESFile(tt.aes, key)
 		if err != nil || string(aes) != tt.value {
 			t.Fatal("AES did not round-trip identically")
@@ -106,12 +105,21 @@ func TestCreatePatientProfileEncryptsAESAndDES(t *testing.T) {
 		if err != nil || string(des) != tt.value {
 			t.Fatal("DES did not round-trip identically")
 		}
+		rc4, err := utils.DecryptRC4File(tt.rc4, key)
+		if err != nil || string(rc4) != tt.value || !bytes.HasPrefix(tt.rc4, []byte("RC41")) {
+			t.Fatal("RC4 did not store a valid envelope and round-trip identically")
+		}
+		tampered := bytes.Clone(tt.rc4)
+		tampered[len(tampered)-1] ^= 1
+		if decoded, err := utils.DecryptRC4File(tampered, key); err == nil || decoded != nil {
+			t.Fatal("tampered stored RC4 ciphertext must be rejected without plaintext")
+		}
 		if bytes.Contains(response.Body.Bytes(), []byte(tt.value)) {
 			t.Fatal("response leaked an identity number")
 		}
 	}
-	if !strings.Contains(response.Body.String(), `"active":["aes","des"]`) || !strings.Contains(response.Body.String(), `"pending":["rc4"]`) {
-		t.Fatal("response must accurately disclose partial cipher support")
+	if !strings.Contains(response.Body.String(), `"active":["aes","des","rc4"]`) || !strings.Contains(response.Body.String(), `"pending":[]`) {
+		t.Fatal("response must disclose all three active ciphers without pending RC4")
 	}
 	if second := sendProfile(router, token, validProfileJSON, "application/json"); second.Code != http.StatusConflict {
 		t.Fatalf("duplicate profile must return 409, got %d", second.Code)
