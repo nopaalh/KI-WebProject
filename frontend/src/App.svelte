@@ -2,9 +2,9 @@
   import { onDestroy, onMount, tick } from 'svelte'
   import DoctorPortal from './DoctorPortal.svelte'
   import PatientPortal from './PatientPortal.svelte'
+  import { ApiError, apiLogout, type CurrentUser, type UserRole } from './api'
 
-  type Role = 'patient' | 'doctor'
-  type CurrentUser = { id: number; name: string; username: string; role: Role }
+  type Role = UserRole
   const characters: { role: Role; label: string }[] = [
     { role: 'patient', label: 'Pasien' },
     { role: 'doctor', label: 'Dokter' },
@@ -75,8 +75,7 @@
     }, reducedMotion ? 0 : 740)
   }
 
-  function reset() {
-    if (pending) return
+  function resetUiState(nextFeedback = '', isSuccess = false) {
     clearTimeout(animationTimer)
     currentUser = null
     mode = 'login'
@@ -86,8 +85,40 @@
     password = ''
     name = ''
     username = ''
-    feedback = ''
+    feedback = nextFeedback
+    success = isSuccess
     visiblePassword = false
+  }
+
+  function reset() {
+    if (pending) return
+    resetUiState()
+  }
+
+  async function logoutSession() {
+    if (pending) return
+    pending = true
+    feedback = ''
+    success = false
+    try {
+      await apiLogout()
+      resetUiState()
+    } catch (err) {
+      if (err instanceof ApiError && err.isNetworkError) {
+        feedback = 'Gagal menghubungi server untuk keluar. Sesi browser mungkin masih aktif.'
+      } else {
+        feedback = 'Gagal mengakhiri sesi di browser. Silakan coba lagi.'
+      }
+      throw err
+    } finally {
+      pending = false
+    }
+  }
+
+  function handleSessionExpired() {
+    resetUiState('Sesi Anda telah berakhir atau tidak valid. Silakan masuk kembali.', false)
+    selected = 'patient'
+    phase = 'form'
   }
 
   async function switchMode() {
@@ -150,12 +181,12 @@
         mode = 'login'
         name = ''
         success = true
-        feedback = 'Akun berhasil dibuat. Silakan masuk.'
+        feedback = 'Akun pasien berhasil dibuat. Silakan masuk.'
       } else {
         try {
           await loadCurrentUser()
         } catch {
-          feedback = 'Login berhasil, tetapi profil belum dapat dimuat. Silakan coba masuk kembali.'
+          feedback = 'Login berhasil, tetapi profil akun belum dapat dimuat. Silakan coba masuk kembali.'
         }
       }
     } catch {
@@ -183,7 +214,7 @@
       {#if currentUser}
         <span class="account-hint">{currentUser.name}</span>
         <span class="account-role">Dokter</span>
-        <button class="back" type="button" onclick={reset} disabled={pending}>Ganti akun</button>
+        <button class="back" type="button" onclick={() => { void logoutSession().catch(() => {}) }} disabled={pending}>{pending ? 'Memproses…' : 'Keluar'}</button>
       {:else}
         {#if phase !== 'choose'}
           <button class="back" type="button" onclick={reset} disabled={pending} aria-label="Kembali memilih pasien atau dokter">Ganti peran</button>
@@ -198,9 +229,9 @@
   {#if currentUser}
     {#key currentUser.id}
       {#if currentUser.role === 'patient'}
-        <PatientPortal user={currentUser} onSwitchAccount={reset} />
+        <PatientPortal user={currentUser} onLogout={logoutSession} onUnauthorized={handleSessionExpired} />
       {:else}
-        <DoctorPortal user={currentUser} />
+        <DoctorPortal user={currentUser} onUnauthorized={handleSessionExpired} />
       {/if}
     {/key}
   {:else}
@@ -209,7 +240,7 @@
       <header class="intro">
         <img class="app-logo" src="/images/portal-mark.svg" alt="Logo Portal Pasien" width="64" height="64" />
         <h1 class="intro-title">Selamat datang.</h1>
-        <p class="intro-description">{phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun Anda untuk memulai.'}</p>
+        <p class="intro-description">{phase === 'choose' ? 'Ruang bersama untuk pasien dan dokter.' : mode === 'login' ? 'Masuk ke akun Anda untuk melanjutkan.' : 'Buat akun pasien Anda untuk memulai.'}</p>
         {#if phase !== 'form'}<p class="role-prompt">Masuk sebagai</p>{/if}
       </header>
 
@@ -272,7 +303,7 @@
                   </fieldset>
                 </form>
                 {#if selected === 'doctor'}
-                  <p class="switch">Akun dokter disediakan oleh rumah sakit.</p>
+                  <p class="switch">Akun dokter disediakan oleh rumah sakit. Hak akses ditentukan oleh peran akun Anda.</p>
                 {:else}
                   <p class="switch">{mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} <button type="button" onclick={switchMode} disabled={pending}>{mode === 'login' ? 'Daftar' : 'Masuk'}</button></p>
                 {/if}

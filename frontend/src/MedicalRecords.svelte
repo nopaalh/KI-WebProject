@@ -41,9 +41,9 @@
       </aside>
     </div>
   {:else}
-    <header class="patient-heading"><h1 class="patient-title" tabindex="-1">Rekam medis</h1><p class="patient-subtitle">{onEdit ? 'Kelola catatan pemeriksaan pasien dan tinjau setiap revisinya.' : 'Ikuti perkembangan pemeriksaan dan baca catatan dari dokter.'}</p></header>
+    <header class="patient-heading"><h1 class="patient-title" tabindex="-1">Rekam medis (Data contoh)</h1><p class="patient-subtitle">Endpoint backend untuk rekam medis, status draf/final, serta riwayat perubahan (version history) belum diimplementasikan. Data di bawah ini hanya pratinjau contoh.</p></header>
     <section class="patient-card records-panel" aria-labelledby="records-title">
-      <div class="records-heading"><div><h2 id="records-title">Riwayat pemeriksaan</h2><p>Catatan contoh untuk memperlihatkan alur pemeriksaan.</p></div><span class="example-label">Data contoh</span></div>
+      <div class="records-heading"><div><h2 id="records-title">Riwayat pemeriksaan contoh</h2><p>Data contoh statis untuk memperlihatkan alur pemeriksaan (tidak terhubung ke database rumah sakit).</p></div><span class="example-label">Data contoh · Backend belum tersedia</span></div>
       <div class="records-toolbar"><div class="record-filters" aria-label="Status rekam medis">{#each ['Semua', 'Draf', 'Final'] as item}<button type="button" aria-pressed={filter === item} class:active={filter === item} onclick={() => filter = item}>{item}</button>{/each}</div><input class="record-search" type="search" aria-label="Cari pemeriksaan" placeholder="Cari pemeriksaan" bind:value={search} /></div>
       <ul class="record-list">
         {#each filtered as item}

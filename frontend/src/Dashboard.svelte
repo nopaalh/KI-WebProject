@@ -1,9 +1,36 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import DocumentPreview from './DocumentPreview.svelte'
-  import { exampleDocuments, type DocumentCategory, type PatientDocument } from './patientExamples'
+  import type { DocumentCategory } from './patientExamples'
+  import {
+    ApiError,
+    apiListFiles,
+    apiUploadPatientFile,
+    classifyFileCategory,
+    classifyFileKind,
+    formatBytes,
+    type ApiFileRecord,
+    type CurrentUser,
+  } from './api'
 
-  let { user, files = exampleDocuments, onOpenProfile }: { user: { name: string; username: string; role: 'patient' | 'doctor' }; files?: PatientDocument[]; onOpenProfile?: () => void } = $props()
+  let {
+    user,
+    onOpenProfile,
+    onUnauthorized,
+  }: {
+    user: CurrentUser
+    onOpenProfile?: () => void
+    onUnauthorized?: () => void
+  } = $props()
+
+  type DashboardItem = {
+    name: string
+    kind: string
+    category: DocumentCategory
+    size: number
+    selected?: boolean
+    record?: ApiFileRecord
+  }
 
   const illustratedKinds = ['PDF', 'DOCX', 'PNG', 'MP4']
   const categories: DocumentCategory[] = ['Semua', 'Dokumen', 'Foto', 'Video']
@@ -12,50 +39,157 @@
   let selectedFile = $state<File | null>(null)
   let fileInput = $state<HTMLInputElement>()
   let dialog = $state<HTMLDialogElement>()
-  let detail = $state<PatientDocument | null>(null)
+  let detail = $state<DashboardItem | null>(null)
   let notice = $state('')
-  const documents = $derived([
-    ...(selectedFile ? [{
-      name: selectedFile.name,
-      kind: selectedFile.name.split('.').pop()?.toUpperCase().slice(0, 8) || 'FILE',
-      category: (selectedFile.type.startsWith('image/') ? 'Foto' : selectedFile.type.startsWith('video/') ? 'Video' : 'Dokumen') as DocumentCategory,
-      size: selectedFile.size,
-      selected: true,
-    }] : []),
-    ...files,
+  let noticeError = $state(false)
+  let uploading = $state(false)
+  let loadingFiles = $state(true)
+  let loadError = $state('')
+  let remoteFiles = $state<ApiFileRecord[]>([])
+
+  const documents = $derived<DashboardItem[]>([
+    ...(selectedFile
+      ? [
+          {
+            name: selectedFile.name,
+            kind: classifyFileKind(selectedFile.name),
+            category: classifyFileCategory(selectedFile.name, selectedFile.type),
+            size: selectedFile.size,
+            selected: true,
+          },
+        ]
+      : []),
+    ...remoteFiles.map(record => ({
+      name: record.original_name,
+      kind: classifyFileKind(record.original_name),
+      category: classifyFileCategory(record.original_name, record.original_type),
+      size: record.original_size,
+      record,
+    })),
   ])
-  const filtered = $derived(documents.filter(file =>
-    (category === 'Semua' || file.category === category) && file.name.toLowerCase().includes(search.toLowerCase().trim()),
-  ))
+
+  const filtered = $derived(
+    documents.filter(
+      file =>
+        (category === 'Semua' || file.category === category) &&
+        file.name.toLowerCase().includes(search.toLowerCase().trim()),
+    ),
+  )
   const firstName = $derived(user.name.trim().split(/\s+/)[0] || user.username)
 
-  function formatSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1048576) return `${(bytes / 1024).toLocaleString('id-ID', { maximumFractionDigits: 0 })} KB`
-    return `${(bytes / 1048576).toLocaleString('id-ID', { maximumFractionDigits: 1 })} MB`
+  onMount(() => {
+    const controller = new AbortController()
+    void fetchFiles(controller.signal)
+    return () => controller.abort()
+  })
+
+  async function fetchFiles(signal?: AbortSignal) {
+    loadingFiles = true
+    loadError = ''
+    try {
+      const list = await apiListFiles(signal)
+      remoteFiles = list
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          onUnauthorized?.()
+          return
+        }
+        if (err.status === 403) {
+          loadError = 'Akun ini tidak memiliki izin membaca daftar dokumen pasien.'
+        } else if (err.isNetworkError) {
+          loadError = 'Tidak dapat terhubung ke server untuk memuat daftar dokumen.'
+        } else {
+          loadError = 'Gagal memuat daftar dokumen dari server.'
+        }
+      } else {
+        loadError = 'Gagal memuat daftar dokumen.'
+      }
+    } finally {
+      loadingFiles = false
+    }
   }
 
   function chooseFile(event: Event) {
+    if (uploading) return
     const file = (event.currentTarget as HTMLInputElement).files?.[0]
     if (!file) return
+    noticeError = false
     if (file.size > 8 * 1024 * 1024) {
       notice = 'Ukuran file maksimal 8 MiB.'
+      noticeError = true
       if (fileInput) fileInput.value = ''
       return
     }
     selectedFile = file
-    notice = 'Dokumen dipilih. Belum diunggah.'
+    notice = 'Dokumen dipilih. Klik "Unggah dokumen" untuk menyimpan ke akun Anda (AES, DES, dan RC4).'
     category = 'Semua'
     search = ''
   }
 
   function clearFile() {
+    if (uploading) return
     selectedFile = null
     notice = ''
+    noticeError = false
     if (fileInput) fileInput.value = ''
   }
 
-  async function showDetail(file: PatientDocument) {
+  async function submitUpload() {
+    if (!selectedFile || uploading) return
+    uploading = true
+    notice = ''
+    noticeError = false
+    try {
+      const saved = await apiUploadPatientFile(selectedFile)
+      selectedFile = null
+      if (fileInput) fileInput.value = ''
+      notice = `Berkas "${saved.original_name}" berhasil disimpan ke server.`
+      await fetchFiles()
+    } catch (err) {
+      noticeError = true
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          onUnauthorized?.()
+          return
+        }
+        if (err.status === 403) {
+          notice = 'Hanya akun pasien yang dapat mengunggah melalui halaman ini.'
+        } else if (err.status === 404) {
+          notice = 'Profil pasien belum dibuat. Lengkapi profil pasien terlebih dahulu sebelum mengunggah dokumen.'
+        } else if (err.status === 413) {
+          notice = 'Ukuran berkas melebihi batas 8 MiB.'
+        } else if (err.status === 400) {
+          notice = 'Berkas tidak valid atau tidak lengkap.'
+        } else if (err.isNetworkError) {
+          notice = 'Gagal terhubung ke server saat mengunggah berkas.'
+        } else {
+          notice = 'Gagal memproses dan menyimpan berkas di server.'
+        }
+      } else {
+        notice = 'Terjadi kesalahan saat mengunggah berkas.'
+      }
+    } finally {
+      uploading = false
+    }
+  }
+
+  function handleRemoteUpdated(updated: ApiFileRecord) {
+    remoteFiles = remoteFiles.map(item => (item.id === updated.id ? updated : item))
+    if (detail?.record && detail.record.id === updated.id) {
+      detail = { ...detail, record: updated }
+    }
+  }
+
+  function describeSource(item: DashboardItem): string {
+    if (item.selected) return 'Belum diunggah'
+    if (!item.record) return 'Tersimpan'
+    if (item.record.uploaded_by_user_id === user.id) return 'Diunggah oleh Anda'
+    return 'Diunggah oleh dokter / rumah sakit'
+  }
+
+  async function showDetail(file: DashboardItem) {
     detail = file
     await tick()
     dialog?.showModal()
@@ -80,27 +214,43 @@
         <p class="profile-name">{user.name}</p>
         <p class="profile-username">@{user.username}</p>
         <div class="profile-footer"><span>Jenis akun</span><span class="profile-role">{user.role === 'patient' ? 'Pasien' : 'Dokter'}</span></div>
-        {#if onOpenProfile}<button class="profile-link" type="button" onclick={onOpenProfile}>Lihat profil pasien</button>{/if}
+        {#if onOpenProfile}<button class="profile-link" type="button" onclick={onOpenProfile}>Lihat profil & KTP pasien</button>{/if}
       </section>
 
       <section class="panel upload-panel" aria-labelledby="upload-title">
         <img class="upload-art" src="/images/document-stack.svg" alt="" width="200" height="160" />
         <h2 id="upload-title">Tambah dokumen</h2>
-        <p>Identitas, formulir, dan berkas pendukung perawatan.</p>
-        <input class="file-input" id="document-file" type="file" bind:this={fileInput} onchange={chooseFile} aria-label="Pilih dokumen" />
-        <button class="choose-file" type="button" onclick={() => fileInput?.click()}>Pilih dokumen</button>
+        <p>Setiap berkas baru disimpan dengan representasi AES, DES, dan RC4 di server.</p>
+        <input class="file-input" id="document-file" type="file" bind:this={fileInput} onchange={chooseFile} disabled={uploading} aria-label="Pilih dokumen" />
+        <button class="choose-file" type="button" disabled={uploading} onclick={() => fileInput?.click()}>Pilih dokumen</button>
         <span class="file-limit">Maksimal 8 MiB per file</span>
         {#if selectedFile}
-          <div class="selected-file"><span>{selectedFile.name}</span><button type="button" onclick={clearFile}>Batalkan</button></div>
+          <div class="selected-file">
+            <span>{selectedFile.name} ({formatBytes(selectedFile.size)})</span>
+            <div class="selected-actions">
+              <button class="upload-submit" type="button" disabled={uploading} onclick={submitUpload}>
+                {uploading ? 'Mengunggah…' : 'Unggah dokumen'}
+              </button>
+              <button type="button" disabled={uploading} onclick={clearFile}>Batalkan</button>
+            </div>
+          </div>
         {/if}
-        <p class="upload-notice" aria-live="polite">{notice}</p>
+        <p class="upload-notice" class:error={noticeError} aria-live="polite">{notice}</p>
+        {#if noticeError && notice.includes('Profil pasien belum dibuat') && onOpenProfile}
+          <button class="profile-link" type="button" onclick={onOpenProfile}>Buka halaman Profil Pasien</button>
+        {/if}
       </section>
     </aside>
 
     <section class="panel documents-panel" aria-labelledby="documents-title">
       <header class="documents-heading">
-        <div><h2 id="documents-title">Dokumen pribadi <span class="count">{documents.length}</span></h2><p>Identitas dan berkas pendukung perawatan Anda.</p></div>
-        <span class="section-number" aria-hidden="true">01</span>
+        <div>
+          <h2 id="documents-title">Dokumen pribadi <span class="count">{documents.length}</span></h2>
+          <p>Lampiran milik profil pasien Anda, termasuk laporan yang diunggah dokter.</p>
+        </div>
+        <button class="refresh-button" type="button" disabled={loadingFiles} onclick={() => fetchFiles()}>
+          {loadingFiles ? 'Memuat…' : 'Muat ulang'}
+        </button>
       </header>
 
       <div class="documents-toolbar">
@@ -115,30 +265,59 @@
         </div>
       </div>
 
+      {#if loadError}
+        <div class="load-error" role="alert">
+          <p>{loadError}</p>
+          <button type="button" onclick={() => fetchFiles()}>Coba lagi</button>
+        </div>
+      {/if}
+
       <div class="document-list">
         <table>
           <thead><tr><th scope="col">Nama dokumen</th><th scope="col" class="size-column">Ukuran</th><th scope="col" class="action-column">Detail</th></tr></thead>
           <tbody>
-            {#each filtered as file}
-              <tr>
-                <td>
-                  <div class="file-name">
-                    <span class="file-icon" aria-hidden="true">
-                      {#if illustratedKinds.includes(file.kind)}
-                        <img class="file-illustration" src={`/images/file-${file.kind.toLowerCase()}.svg`} alt="" width="52" height="61" />
-                      {:else}
-                        <span class="file-symbol" class:video={file.category === 'Video'} class:photo={file.category === 'Foto'} aria-hidden="true">{file.kind}</span>
-                      {/if}
-                    </span>
-                    <div><span class="document-name">{file.name}</span><span class="document-kind">{file.selected ? 'Belum diunggah' : 'Contoh dokumen'}<span class="mobile-size"> · {formatSize(file.size)}</span></span></div>
-                  </div>
-                </td>
-                <td class="size-column">{formatSize(file.size)}</td>
-                <td class="action-column"><button class="detail-button" type="button" aria-label={`Lihat detail ${file.name}`} onclick={() => showDetail(file)}>Lihat</button></td>
-              </tr>
+            {#if loadingFiles && !documents.length}
+              <tr><td colspan="3" class="empty-state"><p>Memuat daftar dokumen dari server…</p></td></tr>
             {:else}
-              <tr><td colspan="3" class="empty-state"><p>Dokumen tidak ditemukan.</p><button type="button" onclick={() => { search = ''; category = 'Semua' }}>Tampilkan semua</button></td></tr>
-            {/each}
+              {#each filtered as file (file.record ? `remote-${file.record.id}` : `local-${file.name}`)}
+                <tr>
+                  <td>
+                    <div class="file-name">
+                      <span class="file-icon" aria-hidden="true">
+                        {#if illustratedKinds.includes(file.kind)}
+                          <img class="file-illustration" src={`/images/file-${file.kind.toLowerCase()}.svg`} alt="" width="52" height="61" />
+                        {:else}
+                          <span class="file-symbol" class:video={file.category === 'Video'} class:photo={file.category === 'Foto'} aria-hidden="true">{file.kind}</span>
+                        {/if}
+                      </span>
+                      <div>
+                        <span class="document-name">{file.name}</span>
+                        <span class="document-kind">
+                          {describeSource(file)}
+                          {#if file.record}
+                            · Cipher: {(file.record.algorithms?.length ? file.record.algorithms : ['aes']).map(a => a.toUpperCase()).join('/')}
+                          {/if}
+                          <span class="mobile-size"> · {formatBytes(file.size)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="size-column">{formatBytes(file.size)}</td>
+                  <td class="action-column"><button class="detail-button" type="button" aria-label={`Lihat detail ${file.name}`} onclick={() => showDetail(file)}>Lihat</button></td>
+                </tr>
+              {:else}
+                <tr>
+                  <td colspan="3" class="empty-state">
+                    {#if documents.length === 0}
+                      <p>Belum ada dokumen yang tersimpan pada profil pasien Anda.</p>
+                    {:else}
+                      <p>Dokumen tidak ditemukan untuk filter ini.</p>
+                      <button type="button" onclick={() => { search = ''; category = 'Semua' }}>Tampilkan semua</button>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            {/if}
           </tbody>
         </table>
       </div>
@@ -156,9 +335,19 @@
       <span class="file-symbol dialog-symbol" aria-hidden="true">{detail.kind}</span>
     {/if}
     <h2 id="detail-title">{detail.name}</h2>
-    <p class="dialog-caption">{detail.selected ? 'Dokumen ini belum diunggah.' : 'Dokumen contoh.'}</p>
-    <dl><div><dt>Jenis</dt><dd>{detail.category}</dd></div><div><dt>Ukuran</dt><dd>{formatSize(detail.size)}</dd></div><div><dt>Status</dt><dd>{detail.selected ? 'Belum diunggah' : 'Contoh dokumen'}</dd></div></dl>
-    <DocumentPreview file={detail} localFile={detail.selected ? selectedFile : null} />
+    <p class="dialog-caption">{describeSource(detail)}</p>
+    <dl>
+      <div><dt>Jenis</dt><dd>{detail.category}</dd></div>
+      <div><dt>Ukuran asli</dt><dd>{formatBytes(detail.size)}</dd></div>
+      <div><dt>Status</dt><dd>{detail.selected ? 'Belum diunggah' : `ID #${detail.record?.id}`}</dd></div>
+    </dl>
+    <DocumentPreview
+      file={detail}
+      localFile={detail.selected ? selectedFile : null}
+      remoteFile={detail.record ?? null}
+      onRemoteFileUpdated={handleRemoteUpdated}
+      {onUnauthorized}
+    />
   {/if}
 </dialog>
 
@@ -190,21 +379,26 @@
   .upload-panel h2 { max-width: 190px; margin: 0 auto; font-size: 21px; font-weight: 550; line-height: 1.3; letter-spacing: -.6px; text-wrap: balance; }
   .upload-panel > p { margin: 12px auto 22px; max-width: 210px; font-size: 12px; line-height: 1.7; text-wrap: pretty; }
   .file-input { display: none; }
-  .choose-file { min-height: 44px; padding: 11px 24px; border: 0; border-radius: 100px; color: #fff; background: #0071e3; font-size: 12px; font-weight: 500; transition: background 200ms, transform 200ms; }
-  .choose-file { min-width: 136px; max-width: 100%; }
-  .choose-file:hover { background: #0064cb; }
-  .choose-file:active { transform: scale(.97); }
+  .choose-file { min-height: 44px; padding: 11px 24px; border: 0; border-radius: 100px; color: #fff; background: #0071e3; font-size: 12px; font-weight: 500; transition: background 200ms, transform 200ms; min-width: 136px; max-width: 100%; }
+  .choose-file:hover:enabled { background: #0064cb; }
+  .choose-file:active:enabled { transform: scale(.97); }
+  .choose-file:disabled { opacity: .6; }
   .file-limit { display: block; font-size: 10px; margin-top: 13px; }
-  .selected-file { display: grid; justify-items: center; gap: 8px; margin-top: 22px; font-size: 12px; }
+  .selected-file { display: grid; justify-items: center; gap: 10px; margin-top: 18px; font-size: 12px; }
   .selected-file > span { max-width: 100%; overflow-wrap: anywhere; }
-  .selected-file button { padding: 4px; border: 0; background: none; color: #0071e3; font-size: 12px; }
-  .upload-panel .upload-notice { margin: 12px auto 0; font-size: 11px; }
+  .selected-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .upload-submit { min-height: 36px; padding: 8px 16px; border: 0; border-radius: 100px; background: #111; color: #fff; font-size: 11px; font-weight: 500; }
+  .upload-submit:disabled { opacity: .6; }
+  .selected-actions button:not(.upload-submit) { padding: 4px 8px; border: 0; background: none; color: #0071e3; font-size: 12px; }
+  .upload-panel .upload-notice { margin: 12px auto 0; font-size: 11px; line-height: 1.6; }
+  .upload-panel .upload-notice.error { color: #9f3a30; }
   .upload-notice:empty { display: none; }
   .documents-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 30px 30px 26px; }
   .documents-heading h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 20px; }
   .documents-heading p { margin: 9px 0 0; font-size: 12px; }
   .count { display: inline-grid; place-items: center; min-width: 25px; height: 25px; padding: 0 6px; border-radius: 8px; background: #f1f4f7; font-size: 11px; letter-spacing: 0; }
-  .section-number { font-size: 11px; padding-left: 16px; border-left: 1px solid #dce2e9; }
+  .refresh-button { min-height: 36px; padding: 7px 14px; border: 1px solid #d1d8e0; border-radius: 10px; background: #fff; font-size: 11px; }
+  .refresh-button:hover:enabled { background: #f4f7fb; }
   .documents-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 0 30px 26px; }
   .filters { display: flex; padding: 4px; border: 1px solid #e0e5eb; border-radius: 11px; background: #f3f5f7; }
   .filters button { min-height: 34px; padding: 7px 12px; border: 0; border-radius: 8px; background: none; font-size: 11px; }
@@ -214,6 +408,9 @@
   .search-field input { height: 42px; padding: 0 12px 0 38px; border-radius: 10px; border-color: #d1d8e0; font-size: 12px; }
   .search-field input:focus { border-color: #0071e3; }
   .search-field input::placeholder { font-size: 12px; }
+  .load-error { margin: 0 30px 20px; padding: 14px 16px; border: 1px solid #f0c9c5; border-radius: 12px; background: #fdf4f3; color: #8c2f25; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .load-error p { margin: 0; }
+  .load-error button { border: 1px solid #d9a39d; background: #fff; border-radius: 8px; padding: 6px 12px; font-size: 11px; color: #8c2f25; }
   table { border-collapse: collapse; table-layout: fixed; width: 100%; text-align: left; }
   th { padding: 13px 12px; border-block: 1px solid #e1e6ec; background: #fafbfc; font-size: 10px; font-weight: 500; }
   th:first-child { width: 65%; padding-left: 30px; }
