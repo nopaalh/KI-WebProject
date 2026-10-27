@@ -2,9 +2,9 @@
   import { onDestroy, onMount, tick } from 'svelte'
   import DoctorPortal from './DoctorPortal.svelte'
   import PatientPortal from './PatientPortal.svelte'
+  import { ApiError, apiLogout, type CurrentUser, type UserRole } from './api'
 
-  type Role = 'patient' | 'doctor'
-  type CurrentUser = { id: number; name: string; username: string; role: Role }
+  type Role = UserRole
   const characters: { role: Role; label: string }[] = [
     { role: 'patient', label: 'Pasien' },
     { role: 'doctor', label: 'Dokter' },
@@ -75,8 +75,7 @@
     }, reducedMotion ? 0 : 740)
   }
 
-  function reset() {
-    if (pending) return
+  function resetUiState(nextFeedback = '', isSuccess = false) {
     clearTimeout(animationTimer)
     currentUser = null
     mode = 'login'
@@ -86,8 +85,36 @@
     password = ''
     name = ''
     username = ''
-    feedback = ''
+    feedback = nextFeedback
+    success = isSuccess
     visiblePassword = false
+  }
+
+  function reset() {
+    if (pending) return
+    resetUiState()
+  }
+
+  async function logoutSession() {
+    if (pending) return
+    pending = true
+    feedback = ''
+    success = false
+    try {
+      await apiLogout()
+      resetUiState()
+    } catch (err) {
+      feedback = err instanceof ApiError && err.isNetworkError ? 'Gagal menghubungi server untuk keluar.' : 'Gagal mengakhiri sesi di browser.'
+      throw err
+    } finally {
+      pending = false
+    }
+  }
+
+  function handleSessionExpired() {
+    resetUiState('Sesi Anda telah berakhir. Silakan masuk kembali.')
+    selected = 'patient'
+    phase = 'form'
   }
 
   async function switchMode() {
@@ -183,7 +210,7 @@
       {#if currentUser}
         <span class="account-hint">{currentUser.name}</span>
         <span class="account-role">Dokter</span>
-        <button class="back" type="button" onclick={reset} disabled={pending}>Ganti akun</button>
+        <button class="back" type="button" onclick={() => { void logoutSession().catch(() => {}) }} disabled={pending}>{pending ? 'Memproses…' : 'Keluar'}</button>
       {:else}
         {#if phase !== 'choose'}
           <button class="back" type="button" onclick={reset} disabled={pending} aria-label="Kembali memilih pasien atau dokter">Ganti peran</button>
@@ -198,9 +225,9 @@
   {#if currentUser}
     {#key currentUser.id}
       {#if currentUser.role === 'patient'}
-        <PatientPortal user={currentUser} onSwitchAccount={reset} />
+        <PatientPortal user={currentUser} onSwitchAccount={logoutSession} onUnauthorized={handleSessionExpired} />
       {:else}
-        <DoctorPortal user={currentUser} />
+        <DoctorPortal user={currentUser} onUnauthorized={handleSessionExpired} />
       {/if}
     {/key}
   {:else}
