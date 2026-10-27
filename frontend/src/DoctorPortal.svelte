@@ -1,13 +1,15 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import MedicalRecords from './MedicalRecords.svelte'
-  import { exampleDoctorPatients } from './doctorExamples'
+  import DocumentPreview from './DocumentPreview.svelte'
+  import { exampleDoctorPatients, type DoctorDocument } from './doctorExamples'
   import type { MedicalRecord, MedicalVersion } from './patientExamples'
 
   let { user }: { user: { name: string; username: string } } = $props()
   let patients = $state(structuredClone(exampleDoctorPatients))
   let selectedId = $state<number | null>(null)
   let search = $state('')
+  let tab = $state<'records' | 'documents'>('records')
   let recordId = $state<number | null>(null)
   let editing = $state(false)
   let editId = $state<number | null>(null)
@@ -17,6 +19,9 @@
   let note = $state('')
   let original = ''
   let notice = $state('')
+  let fileError = $state('')
+  let detail = $state<DoctorDocument | null>(null)
+  let previewDialog = $state<HTMLDialogElement>()
   let editorForm = $state<HTMLFormElement>()
   const patient = $derived(patients.find(item => item.id === selectedId))
   const filtered = $derived(patients.filter(item => `${item.name} ${item.reference}`.toLowerCase().includes(search.trim().toLowerCase())))
@@ -25,7 +30,9 @@
   async function openPatient(id: number) {
     selectedId = id
     recordId = null
+    tab = 'records'
     notice = ''
+    fileError = ''
     await tick()
     document.querySelector<HTMLElement>('.patient-summary h1')?.focus()
   }
@@ -76,7 +83,34 @@
     notice = `Versi ${version.version} disimpan sebagai ${status.toLowerCase()} di halaman ini. Belum dikirim ke rumah sakit; perubahan hilang saat halaman dimuat ulang.`
   }
 
+  function selectFiles(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    const selected = Array.from(input.files ?? [])
+    if (!patient || !selected.length) return
+    fileError = ''
+    if (selected.some(file => file.size > 8 * 1024 * 1024 || !/\.(pdf|docx|png|jpe?g|mp4|webm)$/i.test(file.name))) {
+      fileError = 'Pilih PDF, DOCX, PNG, JPG, MP4, atau WebM dengan ukuran maksimal 8 MB per file.'
+      input.value = ''
+      return
+    }
+    patient.documents.push(...selected.map(file => ({
+      name: file.name, size: file.size, kind: file.name.split('.').pop()!.toUpperCase(),
+      category: /\.(png|jpe?g)$/i.test(file.name) ? 'Foto' as const : /\.(mp4|webm)$/i.test(file.name) ? 'Video' as const : 'Dokumen' as const,
+      localFile: file, selected: true, source: 'Rumah sakit' as const,
+    })))
+    notice = `${selected.length} berkas dipilih untuk ${patient.name}. Belum diunggah; pilihan hilang saat halaman dimuat ulang.`
+    input.value = ''
+  }
 
+  async function openDocument(file: DoctorDocument) {
+    detail = file
+    await tick()
+    previewDialog?.showModal()
+  }
+
+  function fileIcon(file: DoctorDocument) {
+    return file.category === 'Foto' ? 'png' : file.category === 'Video' ? 'mp4' : file.kind === 'PDF' ? 'pdf' : 'docx'
+  }
 </script>
 
 <svelte:head><title>{patient ? `${patient.name} · Ruang dokter` : 'Pasien · Ruang dokter'}</title></svelte:head>
@@ -97,6 +131,7 @@
       <button class="text-button" type="button" disabled={editing} onclick={() => selectedId = null}>Semua pasien</button>
       <div class="summary-row"><div class="summary-name"><span class="avatar large" aria-hidden="true">{patient.name.split(' ').map(part => part[0]).join('')}</span><div><p class="eyebrow">{patient.reference} · Data contoh</p><h1 tabindex="-1">{patient.name}</h1></div></div><dl><div><dt>Usia</dt><dd>{patient.age} tahun</dd></div><div><dt>Berat badan</dt><dd>{patient.weight} kg</dd></div><div><dt>Tinggi badan</dt><dd>{patient.height} cm</dd></div></dl></div>
     </section>
+    <nav class="doctor-tabs" aria-label="Data pasien">{#each [{ id: 'records' as const, label: 'Rekam medis' }, { id: 'documents' as const, label: 'Dokumen pasien' }] as item}<button type="button" disabled={editing} aria-current={tab === item.id ? 'page' : undefined} class:active={tab === item.id} onclick={() => { tab = item.id; notice = ''; fileError = '' }}>{item.label}</button>{/each}</nav>
     {#if editing}
       <main class="patient-page editor-page">
         <header class="patient-heading"><h1 class="patient-title">{editId ? 'Revisi catatan' : 'Catatan baru'}</h1><p class="patient-subtitle">{patient.name} · {editId ? 'Perubahan akan disimpan sebagai versi baru.' : 'Mulai catatan pemeriksaan untuk pasien ini.'}</p></header>
@@ -109,13 +144,22 @@
           <div class="editor-actions"><button class="text-button cancel-edit" type="button" onclick={cancelEdit}>Batal</button><button class="patient-button secondary" type="submit">Simpan draf</button><button class="patient-button" type="button" onclick={() => save('Final')}>Tandai final</button></div>
         </form>
       </main>
-    {:else}
+    {:else if tab === 'records'}
       <div class="record-actions"><p class="patient-note" role="status">{notice || 'Data contoh. Catatan belum terhubung ke layanan rumah sakit.'}</p><button class="patient-button" type="button" onclick={() => edit()}>Catatan baru</button></div>
       {#key patient.id}<MedicalRecords records={patient.records} bind:selectedId={recordId} onEdit={edit} />{/key}
+    {:else}
+      <main class="patient-page">
+        <header class="patient-heading document-heading"><div><h1 class="patient-title">Dokumen pasien</h1><p class="patient-subtitle">Berkas dari pasien dan dokumen pendukung pemeriksaan.</p></div><label class="patient-button file-picker">Tambah dokumen<input type="file" multiple accept=".pdf,.docx,.png,.jpg,.jpeg,.mp4,.webm" onchange={selectFiles} /></label></header>
+        {#if fileError}<p class="patient-message" role="alert">{fileError}</p>{/if}
+        {#if notice}<p class="patient-message" role="status">{notice}</p>{/if}
+        <section class="patient-card document-list" aria-label="Daftar dokumen pasien">{#each patient.documents as file}<button class="document-row" type="button" onclick={() => openDocument(file)}><img src={`/images/file-${fileIcon(file)}.svg`} alt="" width="46" height="54" /><span class="document-name"><strong>{file.name}</strong><small>{file.kind} · {(file.size / 1024 / 1024).toLocaleString('id-ID', { maximumFractionDigits: 2 })} MB · {file.source}</small></span><span class="file-status">{file.localFile ? 'Belum diunggah' : 'Contoh dokumen'}</span></button>{:else}<div class="empty"><img src="/images/document-stack.svg" alt="" width="100" height="80" /><h2>Belum ada dokumen.</h2><p>Tambahkan dokumen pendukung untuk pasien ini.</p></div>{/each}</section>
+        <p class="patient-note">File yang dipilih hanya tersedia di halaman ini. Belum diunggah atau dibagikan ke akun pasien.</p>
+      </main>
     {/if}
   </div>
 {/if}
 
+<dialog bind:this={previewDialog} onclose={() => detail = null} aria-labelledby="doctor-document-title"><form method="dialog"><button class="text-button" type="submit">Tutup</button></form>{#if detail}<h2 id="doctor-document-title">{detail.name}</h2><p class="patient-note">{detail.source} · {detail.localFile ? 'File lokal, belum diunggah' : 'Contoh dokumen'}</p><DocumentPreview file={detail} localFile={detail.localFile} />{/if}</dialog>
 
 <style>
   .eyebrow { margin: 0 0 12px; font-size: 11px; font-weight: 500; letter-spacing: .5px; }
