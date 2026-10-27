@@ -6,18 +6,18 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 
 | Fitur | Status |
 | --- | --- |
-| Register pengguna | Tersedia |
+| Register pengguna | Tersedia; selalu default role `patient` |
 | Login dengan username dan password | Tersedia |
 | Penerbitan JWT saat login | Tersedia |
 | Middleware untuk verifikasi JWT / endpoint terproteksi | Tersedia; `AuthMiddleware` membaca cookie `access_token` |
-| Profil pengguna / endpoint `/me` | Belum tersedia |
+| Profil pengguna / endpoint `/me` | Tersedia; `GET /api/users/me` mengembalikan identitas dan role dari database |
 | Refresh token dan logout server-side | Belum tersedia |
 | Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
 | RC4 dan DES | Belum tersedia |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
-**FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES.** Gunakan hanya endpoint yang tercantum; belum ada endpoint profil, RC4, atau DES.
+**FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES.** Gunakan hanya endpoint yang tercantum; belum ada endpoint RC4 atau DES. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
 
 ## 2. Base URL dan konfigurasi
 
@@ -238,7 +238,7 @@ Alur yang dapat diterapkan sekarang:
 1. Register melalui `/api/users/register`.
 2. Setelah `201`, tampilkan informasi sukses dan arahkan ke halaman login.
 3. Login melalui `/api/users/login` dengan `credentials: "include"` jika lintas origin.
-4. Setelah `200`, browser menyimpan cookie `HttpOnly`; update state UI dan pindah ke tampilan setelah login. Jangan membaca `result.token` atau menyimpan JWT di `localStorage`/`sessionStorage`.
+4. Setelah `200`, browser menyimpan cookie `HttpOnly`; panggil `GET /api/users/me` dengan cookie untuk membaca `id`, `name`, `username`, dan `role` sebelum memilih tampilan. Jangan membaca `result.token` atau menyimpan JWT di `localStorage`/`sessionStorage`. Role tidak disimpan dalam JWT; `/me` membaca nilai terbaru dari database.
 5. Kirim cookie pada request file dengan `credentials: "include"`; `AuthMiddleware` memvalidasi JWT dan meneruskan ID pengguna. Daftar file, metadata, dan dekripsi hanya mengakses file milik pengguna tersebut.
 6. Jika request terproteksi menghasilkan `401`, minta pengguna login lagi; belum ada endpoint refresh.
 
