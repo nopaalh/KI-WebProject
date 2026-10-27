@@ -1,290 +1,164 @@
-# API File — Persistensi dan Timing AES
+# API File — AES, DES, dan RC4
 
-Panduan ini melengkapi [Dokumentasi API Backend](API.md). Implementasi saat ini hanya mendukung **AES-128-CBC-HMAC-SHA256**; daftar file milik pengguna login tersedia, tetapi belum ada RC4 atau DES, meskipun model database memiliki field path RC4/DES.
+Panduan operasional untuk `/api/files`; ringkasan kontrak ada di [API.md](API.md#11-file-generik-tiga-cipher). Upload baru selalu membuat **tiga ciphertext dari bytes input yang sama**, bukan memilih satu cipher. File tetap disimpan di disk server, berbeda dari foto KTP yang disimpan di PostgreSQL.
 
 ## 1. Konfigurasi dan persistensi
 
-Backend tetap memerlukan konfigurasi database, `JWT_SECRET`, dan `SERVER_PORT` seperti pada [panduan utama](API.md#2-base-url-dan-konfigurasi). `godotenv.Load()` memuat `.env` dari working directory; jalankan backend dari `backend/` dengan file `backend/.env` yang valid.
+- `FILE_ENCRYPTION_KEY`: master key 32 byte, dikonfigurasi sebagai tepat 64 karakter hex. Buat sekali dengan `openssl rand -hex 32`, simpan aman, dan gunakan kembali setelah restart.
+- `FILE_STORAGE_DIR`: default `storage/uploads`, relatif terhadap working directory backend; diselesaikan menjadi path absolut. Jalankan backend dari `backend/` bersama `.env` yang valid.
+- Database, `JWT_SECRET`, dan `SERVER_PORT` tetap mengikuti [API.md](API.md#2-base-url-dan-konfigurasi).
+- Jangan commit/mengirim key ke frontend atau menyimpannya di database. Kehilangan key membuat ciphertext tidak bisa dipulihkan; rotasi/re-enkripsi otomatis belum tersedia.
 
-| Environment variable | Aturan |
+Storage dibuat dengan mode `0700`; ciphertext memakai nama acak `aes-*.bin`, `des-*.bin`, `rc4-*.bin` dengan mode `0600`. Nama upload tidak dipakai sebagai path. Database menyimpan owner, metadata, tiga path, versi set cipher, dan enam timing; **path dan key tidak dikirim ke klien**.
+
+Storage tidak boleh menjadi public static hosting. Pakai volume durable; backup database, ciphertext, dan key secara konsisten dengan key disimpan terpisah. Restore/pindah storage harus mempertahankan atau memperbarui path absolut dengan benar.
+
+### All-or-nothing dan batas kegagalan
+
+1. Baca input dengan batas ukuran.
+2. Untuk setiap AES/DES/RC4, ukur enkripsi, tulis ciphertext dengan nama acak, `Sync`, lalu tutup file.
+3. Baca ulang ciphertext yang benar-benar berada di disk, dekripsi, dan bandingkan bytes dengan input awal.
+4. Baru setelah ketiganya berhasil, insert satu record metadata lengkap dengan `cipher_set_version=1`.
+5. Kegagalan enkripsi, write/close, verifikasi, atau insert mengembalikan error dan mencoba menghapus **semua** ciphertext dari operasi tersebut. Kegagalan cleanup juga dilaporkan sebagai error internal, tidak dianggap sukses.
+
+**Filesystem dan PostgreSQL bukan transaksi atomik bersama.** Ini menjamin all-or-nothing pada jalur request normal, bukan crash-atomic/distributed transaction. Crash di antara penulisan dan insert dapat meninggalkan orphan; kegagalan filesystem saat rollback dapat meninggalkan artefak yang perlu dibersihkan. Tidak ada orphan reconciler otomatis atau jaminan pemulihan dari semua hasil commit database yang ambigu. Jangan mengklaim tahan semua power-loss hanya karena memakai `Sync`.
+
+### Schema dan data lama
+
+AutoMigrate menambahkan empat kolom timing DES/RC4 (`BIGINT NOT NULL DEFAULT 0`) dan `cipher_set_version` (`NOT NULL DEFAULT 0`) melalui model `File`. Tidak ada SQL migration baru atau migrasi database yang dijalankan dalam sesi implementasi ini. SQL `000001` yang lama hanya menangani timing AES; bukan migrasi lengkap untuk perubahan ini.
+
+| Versi | Makna |
 | --- | --- |
-| `FILE_ENCRYPTION_KEY` | **Wajib**; tepat 64 karakter hexadecimal yang mewakili 32 byte master key acak. Startup berhenti jika format/panjang salah. Ini bukan password atau `JWT_SECRET`. |
-| `FILE_STORAGE_DIR` | Opsional; default `storage/uploads`, relatif terhadap working directory proses backend (bila dijalankan dari `backend/`, berarti `backend/storage/uploads`). Path diubah menjadi absolut saat inisialisasi. |
+| `0` | Record historis AES-only. Kedua path DES/RC4 harus kosong untuk jalur kompatibilitas. |
+| `1` | Upload baru; ketiga path/ciphertext wajib lengkap dan cocok. Path hilang tidak mengaktifkan fallback legacy. |
 
-Buat key **sekali**:
+Data lama **tidak otomatis di-backfill**. AES lama yang valid tetap dapat diunduh melalui AES/default. Memilih DES/RC4 pada versi 0 menghasilkan `409`; upload ulang original untuk membuat record baru lengkap. Record metadata-only/tanpa envelope AES valid tetap tidak dapat didekripsi.
 
-```sh
-openssl rand -hex 32
-```
+Default timing `0` pada record lama bukan hasil benchmark. Metadata database, termasuk versi/relasi, bukan bukti kebal manipulasi administrator.
 
-Simpan output tersebut sebagai nilai `FILE_ENCRYPTION_KEY` di konfigurasi backend yang aman. Jangan membuat key baru setiap restart/deploy: file yang sudah tersimpan membutuhkan key lama yang sama. Tidak ada mekanisme rotasi/re-enkripsi otomatis. Kehilangan key berarti tidak dapat memulihkan plaintext dari ciphertext. **Backup key secara terpisah dan aman** dari database serta file terenkripsi; jangan commit key, menaruhnya di database, mengirimnya ke browser, atau memasukkannya ke environment frontend. Key hanya digunakan di backend.
+## 2. Autentikasi dan ownership
 
-Direktori storage dibuat dengan mode `0700` jika belum ada; file memakai nama hasil generate `aes-*.bin` dan dibuat melalui `os.CreateTemp` (mode `0600`). Nama upload tidak dipakai sebagai path penyimpanan. Disk menyimpan envelope terenkripsi, sedangkan database menyimpan metadata, owner, path absolut `AESPath`, dan timing. **Path disk hanya disimpan di database; tidak pernah disertakan dalam response API.**
+Keempat endpoint menggunakan cookie HttpOnly `access_token` melalui AuthMiddleware, bukan Bearer token. User ID berasal dari JWT tervalidasi, bukan query/body. Query metadata, download, dan update timing dibatasi ID file **dan** ID user. File tidak ada/bukan milik user sama-sama `404`. List hanya memuat file sendiri, ID DESC, tanpa pagination/filter; query `user_id` tidak mengubah pemilik.
 
-Storage tidak didaftarkan sebagai public static hosting. Jangan mengekspos direktori ini lewat web server. Gunakan disk/volume **durable**, bukan filesystem container sementara. Backup database dan ciphertext secara konsisten, serta key secara terpisah. Saat restore/pindah deployment, pertahankan pemetaan path absolut dan direktori yang cocok dengan `FILE_STORAGE_DIR`; mengganti lokasi tidak otomatis memindahkan file atau memperbarui path database.
-
-Upload menulis ciphertext sebelum insert metadata. Jika penulisan/penutupan file atau insert database gagal, service mencoba menutup/menghapus file yang belum berhasil dipersistenkan; insert gagal tidak dianggap upload sukses. Namun operasi disk dan database **bukan transaksi atomik**, cleanup bersifat best-effort, dan process crash di antaranya dapat meninggalkan file tanpa record. Jangan menganggap ada jaminan crash-atomic atau cleanup orphan otomatis.
-
-### Migrasi record lama
-
-Startup memakai `AutoMigrate` pada model `File` yang sudah ada, menambahkan kolom `aes_encrypt_time_ns` dan `aes_decrypt_time_ns` (`int64`, non-null, default `0`). Record historis mendapat nilai default `0`, bukan hasil pengukuran baru. Migrasi tidak mengenkripsi ulang atau membuat ciphertext untuk record lama.
-
-Untuk menerapkan perubahan schema secara manual sebelum smoke test, tersedia [SQL migration up/down dan panduannya](../backend/migrations/README.md). Migration ini membutuhkan tabel `files` yang sudah ada; bukan baseline database kosong. `AutoMigrate` tetap aktif, dan aplikasi belum memakai migration runner/ledger otomatis. Jangan menjalankan migration pada database remote tanpa memastikan target dan persetujuannya.
-
-Record lama yang hanya berisi metadata tanpa file envelope AES1 yang valid **tidak dapat didekripsi**; upload ulang file asli. Metadata masih dapat dibaca oleh pemiliknya. Nilai `algorithm` pada response adalah label implementasi saat ini, bukan bukti bahwa ciphertext record historis tersedia/valid.
-
-## 2. Autentikasi dan kepemilikan
-
-Keempat endpoint di bawah berada di group `/api/files` yang dilindungi `AuthMiddleware` yang sudah ada. Login melalui `POST /api/users/login` mengembalikan hanya `{"message":"Login successful"}` dan mengatur cookie JWT **`access_token` (`HttpOnly`)**. Claim ID internal bernama `userId`. Middleware membaca cookie, bukan header Bearer; lihat [alur autentikasi](API.md#5-jwt-dan-alur-autentikasi-frontend).
-
-Query metadata, dekripsi, dan update timing dibatasi oleh ID file **dan** ID pengguna login. ID yang tidak ada maupun milik pengguna lain menghasilkan `404`, bukan membocorkan keberadaan file tersebut. Daftar file hanya memuat seluruh record milik pengguna login. Owner diambil dari `AuthMiddleware` yang sudah ada melalui cookie `access_token`, bukan input klien; query `user_id` diabaikan dan tidak dapat dipakai untuk mengakses file pengguna lain. Tidak ada parameter owner yang perlu dikirim frontend.
-
-## 3. Endpoint
-
-Base URL contoh: `http://localhost:8080/api` (sesuaikan `SERVER_PORT`).
+## 3. Kontrak endpoint
 
 ### Upload — `POST /api/files`
 
-- Body: `multipart/form-data`, field file bernama **`file`**.
-- Batas byte file asli: **8 MiB = 8,388,608 byte**. Service memeriksa ukuran yang dinyatakan multipart serta membatasi byte yang benar-benar dibaca.
-- Batas keseluruhan request body: **9 MiB = 9,437,184 byte**, termasuk overhead multipart. Jadi file di bawah 8 MiB tetap bisa ditolak jika total body melebihi 9 MiB.
-- Browser: kirim `FormData`; jangan set `Content-Type` sendiri karena boundary harus dibuat browser.
-- Service membaca plaintext, mengukur `EncryptAESFile`, mengukur `DecryptAESFile` pada envelope hasilnya, lalu memeriksa round-trip dengan `bytes.Equal` **sebelum** menyimpan ciphertext dan metadata. Upload gagal jika round-trip tidak valid.
+- `multipart/form-data`, field file `file`; jangan set Content-Type manual di browser.
+- Maksimal **8 MiB** input dan **9 MiB** seluruh body termasuk multipart. Batas video belum dinaikkan; pipeline masih in-memory.
+- Tidak ada pemilihan cipher saat upload: ketiganya selalu digunakan.
+- `201 Created`: `{"message":"File encrypted and saved successfully","file":{...metadata...}}`.
 
-Response sukses — `201 Created`, JSON:
+### Metadata dan list
 
-```json
-{
-  "message": "File encrypted and saved successfully",
-  "file": {
-    "id": 1,
-    "original_name": "laporan.pdf",
-    "original_size": 4096,
-    "original_type": "application/pdf",
-    "algorithm": "AES-128-CBC-HMAC-SHA256",
-    "aes_encrypt_time_ns": 2500000,
-    "aes_decrypt_time_ns": 2700000
-  }
-}
-```
-
-Angka ID/ukuran/timing di atas hanya ilustrasi, bukan hasil benchmark.
-
-### Daftar file — `GET /api/files`
-
-Tanpa body, pagination, atau filter. Mengembalikan **seluruh record milik pengguna login**, diurutkan **ID DESC** (record terbaru diinsert terlebih dahulu), bukan berdasarkan nama atau timing.
-
-Response sukses — `200 OK`, header `Cache-Control: no-store`, JSON:
+`GET /api/files/:id` menghasilkan `{"file":{...}}`; `GET /api/files` menghasilkan `{"files":[...]}` atau `{"files":[]}`. DTO sama untuk upload/list/detail:
 
 ```json
 {
-  "files": [
-    {
-      "id": 1,
-      "original_name": "laporan.pdf",
-      "original_size": 4096,
-      "original_type": "application/pdf",
-      "algorithm": "AES-128-CBC-HMAC-SHA256",
-      "aes_encrypt_time_ns": 2500000,
-      "aes_decrypt_time_ns": 2700000
-    }
-  ]
+  "id": 1,
+  "original_name": "laporan.pdf",
+  "original_size": 4096,
+  "original_type": "application/pdf",
+  "algorithm": "AES-128-CBC-HMAC-SHA256",
+  "algorithms": ["aes", "des", "rc4"],
+  "cipher_set_version": 1,
+  "aes_encrypt_time_ns": 0,
+  "aes_decrypt_time_ns": 0,
+  "des_encrypt_time_ns": 0,
+  "des_decrypt_time_ns": 0,
+  "rc4_encrypt_time_ns": 0,
+  "rc4_decrypt_time_ns": 0
 }
 ```
 
-Jika tidak ada record milik pengguna, response tetap `200 OK` dengan `{"files":[]}`, bukan `null` atau `404`. Setiap item memakai **DTO metadata yang sama** dengan endpoint metadata per ID: hanya tujuh field di atas, tanpa path disk atau key. Endpoint hanya membaca metadata database, tidak membaca/memeriksa file disk dan tidak mengukur ulang timing. Record historis metadata-only tetap disertakan, meskipun tidak dapat didekripsi; timing tersimpan (termasuk default historis `0`) dikembalikan apa adanya.
+ID/ukuran/nama adalah contoh sintetis; timing nol di contoh **hanya penanda format, bukan angka hasil**. Operasi nyata memakai durasi terukur.
 
-Error `401` memakai pesan `AuthMiddleware` yang sudah ada seperti pada tabel error di bawah. Kegagalan pemrosesan/database menghasilkan `500 Internal Server Error` dengan `{"message":"Failed to process file"}`.
+- `algorithm` dipertahankan untuk kompatibilitas sebagai **label cipher download default AES**, bukan daftar seluruh cipher.
+- `algorithms` berasal dari path nonkosong pada metadata; bukan pemeriksaan integritas/keberadaan file live. Legacy biasanya `["aes"]`; metadata-only dapat `[]`.
+- `cipher_set_version` membedakan record legacy dan record yang mewajibkan tiga cipher.
+- `original_name` dibersihkan menjadi basename. `original_type` adalah metadata multipart dari klien, bukan validasi format isi.
+- GET metadata/list tidak membaca disk atau mengukur ulang; tetap menyertakan record historis. Tidak ada ciphertext/path/key dalam respons.
 
-### Metadata — `GET /api/files/:id`
+### Download — `POST /api/files/:id/decrypt?algorithm=aes|des|rc4`
 
-Tanpa body. `:id` harus berupa bilangan bulat positif. Response sukses — `200 OK`, JSON dengan satu properti `file` yang memiliki field sama seperti upload, tanpa properti `message`:
+Tanpa body. Parameter default/kosong adalah `aes`; nilai selain tiga nama lowercase tersebut ditolak `400`. Parameter hanya memilih representasi yang diukur/dilaporkan, bukan mengubah cara upload disimpan.
 
-```json
-{
-  "file": {
-    "id": 1,
-    "original_name": "laporan.pdf",
-    "original_size": 4096,
-    "original_type": "application/pdf",
-    "algorithm": "AES-128-CBC-HMAC-SHA256",
-    "aes_encrypt_time_ns": 2500000,
-    "aes_decrypt_time_ns": 2700000
-  }
-}
-```
+Untuk versi 1, backend membaca, mengautentikasi, dan mendekripsi **ketiga ciphertext**, membandingkan hasil byte-per-byte dan ukuran plaintext. Satu salinan hilang/rusak/tidak cocok membuat **seluruh download gagal**, termasuk ketika cipher lain dipilih. Tidak ada partial plaintext atau fallback. Symlink, path di luar storage, prefix cipher salah, dan envelope melebihi batas ditolak.
 
-| Field | Makna |
-| --- | --- |
-| `id` | ID record; diperoleh dari response upload atau daftar file milik pengguna login. |
-| `original_name` | Nama asli yang diambil basename-nya, bukan path upload pengguna. |
-| `original_size` | Ukuran plaintext dalam byte, bukan ukuran ciphertext. |
-| `original_type` | `Content-Type` dari bagian multipart upload; metadata klien, bukan hasil verifikasi tipe isi. |
-| `algorithm` | Label tetap `AES-128-CBC-HMAC-SHA256` dari implementasi saat ini. |
-| `aes_encrypt_time_ns` | Durasi enkripsi saat upload, tersimpan di database. |
-| `aes_decrypt_time_ns` | Awalnya durasi dekripsi verifikasi saat upload; setelah download dekripsi sukses, nilai terakhir yang dipersistenkan. |
-
-Response menggunakan DTO khusus; tidak menyertakan `AESPath`, path RC4/DES, master key, atau byte ciphertext. GET hanya membaca metadata; tidak mengukur ulang maupun memeriksa keberadaan/integritas file disk.
-
-### Dekripsi dan download — `POST /api/files/:id/decrypt`
-
-Tanpa body. Service mengambil record milik pengguna, membaca envelope dari path storage yang diizinkan, mendekripsi dan memverifikasi integritas serta ukuran plaintext, lalu memperbarui **`aes_decrypt_time_ns` di database sebelum mengirim response sukses**. Jika update database gagal, request gagal, bukan mengirim download sukses tanpa timing tersimpan.
-
-Response sukses — `200 OK` dengan **byte asli file**, bukan JSON, base64, atau envelope terenkripsi:
+Setelah verifikasi lengkap, hanya timing dekripsi cipher yang dipilih diperbarui pada row owner-scoped. Jika update DB gagal, download gagal sebelum mengirim body sukses.
 
 ```http
+HTTP/1.1 200 OK
 Content-Type: application/octet-stream
 Content-Disposition: attachment; filename=laporan.pdf
-X-Decryption-Time-Ns: 2800000
+X-Decryption-Algorithm: des
+X-Decryption-Time-Ns: 0
 X-Content-Type-Options: nosniff
 Cache-Control: no-store
 ```
 
-`Content-Disposition` diformat oleh backend menggunakan nama asli tersanitasi; quoting/encoding dapat berbeda untuk nama yang mengandung spasi atau karakter non-ASCII. `X-Decryption-Time-Ns` adalah integer desimal dalam nanodetik untuk dekripsi pada request ini, sama dengan nilai yang dipersistenkan oleh request tersebut. Request dekripsi berikutnya **menimpa** nilai lama; tidak ada riwayat/akumulasi/rata-rata, dan request bersamaan dapat menimpa nilai satu sama lain. `aes_encrypt_time_ns` tidak berubah. Ambil metadata lagi untuk membaca nilai dekripsi terakhir yang tersimpan.
+Header timing nol di atas ilustrasi format, bukan hasil. Body berisi bytes asli, bukan JSON/Base64/envelope. Header algoritma/timing serta Content-Disposition diekspos oleh CORS. Semua respons controller memakai no-store; jangan mengandalkan header itu pada setiap error middleware.
 
-Upload, daftar file, dan metadata juga mengatur `Cache-Control: no-store`. Jangan mengandalkan seluruh response error middleware memiliki header tersebut.
-
-### Error
-
-Error endpoint file berbentuk JSON `{"message":"..."}`, termasuk pada route dekripsi yang suksesnya binary. Periksa status HTTP sebelum membaca body.
-
-| Status | Kondisi / `message` |
+| Status | Kondisi |
 | --- | --- |
-| `400 Bad Request` | Field file hilang: `file is required`; multipart tidak valid: `Invalid multipart request`; ID nol/tidak valid: `Invalid file ID`. |
-| `401 Unauthorized` | Cookie hilang: `Missing authentication cookie`; JWT invalid/kedaluwarsa: `Invalid or expired token`; claim ID tidak valid: `Unauthorized: user_id missing`; controller juga dapat mengembalikan `Unauthorized`. |
-| `404 Not Found` | Record tidak ada atau bukan milik pengguna: `file not found`. |
-| `413 Request Entity Too Large` | File melebihi 8 MiB atau body melebihi batas 9 MiB: `file size exceeds 8 MiB limit`. |
-| `500 Internal Server Error` | Kegagalan I/O/database, ciphertext hilang/rusak, key berbeda, record metadata-only lama, atau verifikasi gagal: `Failed to process file`. Detail internal tidak dikirim ke klien. |
+| `400` | Multipart/file/ID tidak valid atau algorithm bukan aes/des/rc4 |
+| `401` | Cookie/token/ID autentikasi tidak valid |
+| `404` | Record tidak ada atau bukan milik user |
+| `409` | Memilih DES/RC4 untuk record legacy AES-only |
+| `413` | File >8 MiB atau body >9 MiB |
+| `500` | Gangguan disk/DB, set ciphertext tidak lengkap/rusak/tidak cocok, key salah, atau update timing gagal |
 
-## 4. Arti dan batasan timing
+Error selalu JSON `{"message":"..."}`; internal error memakai `Failed to process file`. Periksa status sebelum membaca sukses sebagai blob.
 
-Service memakai `time.Now()` / `time.Since(...).Nanoseconds()` tepat di sekitar pemanggilan fungsi envelope:
+## 4. Timing dan batas evaluasi
 
-| Nilai | Operasi yang diukur |
+Enam kolom timing mengukur fungsi envelope masing-masing cipher dengan `time.Now`/`time.Since`, dalam nanodetik. Termasuk derivasi kunci, alokasi, mode/padding/drop, nonce/IV acak saat enkripsi, dan HMAC; bukan hanya putaran cipher.
+
+Tidak termasuk network, parsing multipart, disk read/write/Sync, DB, serialisasi, atau perbandingan bytes. Pada download versi 1, semua cipher diverifikasi tetapi **header dan satu kolom yang diperbarui hanya milik cipher pilihan**. Latensi HTTP mencakup verifikasi ketiganya; jangan menganggapnya waktu satu algoritma. Timing dua cipher lain tidak ditimpa pada request itu.
+
+Kolom decrypt berawal dari verifikasi upload dan kemudian menyimpan sampel terakhir untuk cipher yang dipilih; bukan riwayat/rata-rata. Request bersamaan dapat saling menimpa. Enkripsi timing tidak berubah saat download. Konversi ms = ns/1e6.
+
+Ini instrumentasi satu sampel, bukan benchmark ketat. Evaluasi wajib memakai input sama, variasi ukuran, pengulangan, catatan lingkungan, serta memisahkan biaya cipher dari I/O. Fixtures bernama PDF/DOCX/MP4 pada tes adalah bytes sintetis untuk round-trip, **bukan bukti validitas format media atau hasil benchmark**.
+
+## 5. Envelope dan batas keamanan
+
+| Cipher | Envelope |
 | --- | --- |
-| `aes_encrypt_time_ns` saat upload | Satu pemanggilan `utils.EncryptAESFile(plaintext, key)`. |
-| `aes_decrypt_time_ns` saat upload | Satu pemanggilan `utils.DecryptAESFile(encrypted, key)` untuk verifikasi round-trip sebelum persistensi. |
-| Header `X-Decryption-Time-Ns` dan update `aes_decrypt_time_ns` saat dekripsi | Satu pemanggilan `utils.DecryptAESFile(encrypted, key)` setelah ciphertext selesai dibaca dari disk. |
+| AES | `AES1 || IV 16 B || AES-128-CBC/PKCS7 || HMAC-SHA256` |
+| DES | `DES1 || nonce 16 B || DES-CTR || HMAC-SHA256` |
+| RC4 | `RC41 || nonce 16 B || RC4-drop1536 || HMAC-SHA256` |
 
-**Termasuk** pekerjaan di dalam fungsi envelope: derivasi key, alokasi/copy buffer, ekspansi key AES, CBC, padding PKCS7/pemeriksaannya, dan pembuatan/verifikasi HMAC; enkripsi juga mencakup pembuatan IV acak. Ini bukan timing hanya putaran AES atau satu blok AES.
+HMAC diverifikasi sebelum dekripsi. Utilitas yang sudah ada memakai pemisahan kunci enkripsi/MAC melalui label derivasi per cipher; DES/RC4 memakai nonce dalam derivasi encryption key. Master key tidak dikirim ke frontend.
 
-**Tidak termasuk** transfer upload/download, parsing multipart, pembacaan plaintext upload atau ciphertext disk, penulisan file, query/insert/update database, serialisasi response, maupun perbandingan `bytes.Equal` saat verifikasi upload. Pemeriksaan panjang plaintext setelah dekripsi download juga di luar timer. Latensi HTTP yang dirasakan pengguna akan berbeda dan umumnya mencakup pekerjaan tambahan tersebut.
+**DES dan RC4 tidak aman untuk produksi; implementasi buatan tangan bersifat akademik.** Menyimpan tiga salinan juga membuat kerahasiaan bergantung pada cipher terlemah. Metadata nama/tipe/ukuran file masih plaintext; integrasi ini bukan penyelesaian perlindungan semua metadata atau kepatuhan regulasi.
 
-Konversi tampilan: **`milliseconds = nanoseconds / 1e6`**. Misalnya `2500000 ns` berarti `2.5 ms`. Setiap nilai adalah **satu sampel wall-clock**, bukan benchmark ketat atau rata-rata. Ukuran/isi file, CPU, scheduler, garbage collection, dan beban proses dapat memengaruhi hasil. Jangan menyimpulkan performa algoritma dari satu upload/download atau membandingkannya dengan RC4/DES yang belum diimplementasikan. Nilai historis `0` adalah default migrasi, bukan bukti operasi berlangsung nol waktu.
+## 6. Contoh penggunaan
 
-## 5. Format envelope dan batas keamanan
-
-Format disk:
-
-```text
-"AES1" (4 byte) || IV acak (16 byte) || ciphertext AES-128-CBC + PKCS7 || HMAC-SHA256 (32 byte)
-```
-
-Ciphertext adalah hasil enkripsi plaintext yang sudah diberi padding PKCS7, panjangnya kelipatan 16 byte, termasuk satu blok padding penuh jika plaintext sudah selaras. HMAC mengautentikasi `magic || IV || ciphertext` dan diverifikasi **sebelum** dekripsi AES/pemeriksaan padding. Master key 32 byte diturunkan menjadi:
-
-- Key AES 16 byte: 16 byte pertama `HMAC-SHA256(masterKey, "AES1/encryption")`.
-- Key MAC 32 byte: `HMAC-SHA256(masterKey, "AES1/authentication")`.
-
-**AES buatan tangan ini untuk pembelajaran dan tidak constant-time; bukan jaminan keamanan produksi.** Keberadaan HMAC dan verifikasi integritas tidak membuat implementasi AES edukasional ini siap melindungi data produksi. Belum ada RC4 atau DES pada alur file ini.
-
-## 6. Contoh curl dengan cookie jar
-
-Asumsi pengguna sudah register dan backend memakai port `8080`. Sesuaikan path file lokal; contoh ID `1` harus diganti dengan `file.id` dari response upload.
+Dengan cookie jar hasil login dan contoh ID 1 (ganti dengan ID respons upload):
 
 ```sh
-# Login: simpan cookie HttpOnly ke cookie jar lokal.
-curl -i -c cookies.txt -X POST http://localhost:8080/api/users/login \
-  -H 'Content-Type: application/json' \
-  --data '{"username":"nopal","password":"contoh-password-kuat"}'
-
-# Upload: curl membuat Content-Type multipart beserta boundary.
-curl -i -b cookies.txt http://localhost:8080/api/files \
-  -F 'file=@./laporan.pdf'
-
-# Daftar seluruh file milik pengguna cookie ini, urutan ID DESC, tanpa pagination/filter.
-curl -i -b cookies.txt http://localhost:8080/api/files
-
-# Baca metadata dan timing yang dipersistenkan.
-curl -i -b cookies.txt http://localhost:8080/api/files/1
-
-# Dekripsi: simpan byte asli dan header (termasuk timing) secara terpisah.
-curl --fail-with-body -b cookies.txt -X POST \
-  http://localhost:8080/api/files/1/decrypt \
-  -D decrypt-headers.txt -o laporan-decrypted.pdf
-
-# Opsional: bandingkan hasil download dengan file asli setelah HTTP sukses.
-cmp ./laporan.pdf ./laporan-decrypted.pdf
-
-# Baca lagi untuk melihat aes_decrypt_time_ns terbaru.
-curl -i -b cookies.txt http://localhost:8080/api/files/1
+curl --fail-with-body -b cookies.txt http://localhost:8080/api/files -F 'file=@./laporan.pdf'
+curl --fail-with-body -b cookies.txt -X POST 'http://localhost:8080/api/files/1/decrypt?algorithm=des' -o laporan-des.pdf
+cmp ./laporan.pdf ./laporan-des.pdf
+curl --fail-with-body -b cookies.txt -X POST 'http://localhost:8080/api/files/1/decrypt?algorithm=rc4' -o laporan-rc4.pdf
+cmp ./laporan.pdf ./laporan-rc4.pdf
 ```
 
-Periksa keberhasilan curl/status sebelum menjalankan `cmp`: `--fail-with-body` memberi exit code gagal pada HTTP error tetapi tetap dapat menyimpan body **JSON error** ke file output. Lindungi dan hapus `cookies.txt` setelah pengujian karena berisi kredensial autentikasi; jangan commit cookie jar atau hasil download sensitif.
-
-## 7. Contoh frontend: FormData dan binary download
-
-Contoh mengasumsikan login sudah berhasil. Base URL ini untuk akses langsung dari `http://localhost:5173`; sesuaikan port atau gunakan `/api` jika memakai proxy/same-origin.
+Periksa exit code/status sebelum cmp: curl --fail-with-body dapat menulis JSON error ke file output. Cookie jar dan hasil dekripsi bersifat privat; jangan commit.
 
 ```js
-const API_BASE_URL = "http://localhost:8080/api";
-
-async function throwFileError(response) {
-  const data = await response.json().catch(() => null);
-  const error = new Error(data?.message ?? `Request gagal (HTTP ${response.status})`);
-  error.status = response.status;
-  throw error;
-}
-
-async function uploadFile(file) {
-  const form = new FormData();
-  form.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/files`, {
+async function downloadFile(id, algorithm = "aes") {
+  const response = await fetch(`/api/files/${id}/decrypt?algorithm=${encodeURIComponent(algorithm)}`, {
     method: "POST",
-    credentials: "include",
-    body: form,
-    // Jangan set Content-Type; browser menambahkan boundary multipart.
+    credentials: "include"
   });
-  if (!response.ok) await throwFileError(response);
-  return (await response.json()).file;
-}
-
-async function listFiles() {
-  const response = await fetch(`${API_BASE_URL}/files`, {
-    method: "GET",
-    credentials: "include",
-  });
-  if (!response.ok) await throwFileError(response);
-  return (await response.json()).files; // Array metadata ID DESC; [] jika kosong.
-}
-
-async function getFileMetadata(id) {
-  const response = await fetch(`${API_BASE_URL}/files/${id}`, {
-    credentials: "include",
-  });
-  if (!response.ok) await throwFileError(response);
-  return (await response.json()).file;
-}
-
-async function downloadDecryptedFile(file) {
-  const response = await fetch(`${API_BASE_URL}/files/${file.id}/decrypt`, {
-    method: "POST",
-    credentials: "include",
-  });
-  // Error berupa JSON; sukses berupa byte file. Jangan panggil json() saat sukses.
-  if (!response.ok) await throwFileError(response);
-  const timing = response.headers.get("X-Decryption-Time-Ns");
-  const decryptTimeMs = timing === null ? null : Number(timing) / 1e6;
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = file.original_name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return decryptTimeMs;
+  if (!response.ok) throw new Error((await response.json()).message);
+  return response.blob();
 }
 ```
 
-Untuk `fetch`, header `attachment` tidak otomatis memulai download; contoh membuat object URL dari `response.blob()`. Router mengekspos `Content-Disposition` dan `X-Decryption-Time-Ns` melalui CORS, sehingga frontend juga dapat membaca header nama file/timing. Contoh memakai `original_name` dari metadata agar tidak perlu parsing `Content-Disposition`. Tangani `401` dengan meminta login ulang dan kegagalan jaringan/CORS secara terpisah dari HTTP error. Login lintas origin juga wajib memakai `credentials: "include"`; CORS saat ini hanya mengizinkan `http://localhost:5173` dengan credentials aktif.
+Untuk fetch lintas origin gunakan base URL backend dan credentials. CORS dev tetap hanya `http://localhost:5173`; object URL/blob yang dipakai UI perlu dibersihkan setelah dipakai. `attachment` pada fetch tidak otomatis membuka dialog download.
+
+## 7. Verifikasi
+
+Tes mencakup round-trip tiap cipher, file kosong/binary, kepemilikan, set hilang/rusak/tidak cocok, path/symlink, rollback kegagalan enkripsi/write/verifikasi/DB, cleanup failure, kompatibilitas legacy, serta query/timing whitelist DryRun. Tidak ada migrasi atau PostgreSQL nyata yang dijalankan dalam sesi ini. Smoke harness lama bukan bukti format metadata tiga cipher sudah diuji end-to-end; pembaruan harness bukan bagian CI.

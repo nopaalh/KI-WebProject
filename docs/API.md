@@ -13,16 +13,16 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Profil pengguna / endpoint `/me` | Tersedia; `GET /api/users/me` mengembalikan identitas dan role dari database |
 | Logout browser | Tersedia; `POST /api/users/logout` menghapus cookie HttpOnly, lihat bagian 5.1 |
 | Refresh token dan revokasi JWT server-side | Belum tersedia |
-| Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
+| Upload, metadata, dan download file tiga cipher | Tersedia; upload baru AES/DES/RC4 all-or-nothing, download `?algorithm=aes|des|rc4`; lihat bagian 11 |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
 | Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | Baca data KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp`; lihat [kontrak KTP](#10-ktp-pasien) |
 | Baca foto KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp/photo`; lihat bagian 10.4 |
 | Create KTP dan upload foto | Tersedia; `POST /api/patients/me/ktp`, multipart data JSON + photo; lihat bagian 10.7 |
-| RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik masih AES |
+| RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik juga memakai ketiga cipher untuk upload baru |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
-**FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES.** Gunakan hanya endpoint yang tercantum; belum ada endpoint RC4 atau DES. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
+**FrontEnd dapat mengintegrasikan register, login, upload file, daftar file milik pengguna login, metadata per ID, dan download hasil dekripsi AES/DES/RC4.** Gunakan hanya endpoint yang tercantum; pemilihan cipher file melalui query algorithm pada endpoint dekripsi. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
 
 ## 2. Base URL dan konfigurasi
 
@@ -45,14 +45,14 @@ Semua endpoint yang tersedia:
 | `POST` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membuat data KTP dan upload foto; kontrak di bagian 10.7 |
 | `GET` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membaca data KTP sendiri; kontrak di bagian 10 |
 | `GET` | `/api/patients/me/ktp/photo` | Cookie `access_token`, role `patient` | Mengambil bytes foto KTP sendiri setelah dekripsi; kontrak di bagian 10.4 |
-| `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripc.PatientProfileCosi, dan simpan file serta timing |
+| `POST` | `/api/files` | Cookie `access_token` | Upload multipart, simpan tiga ciphertext AES/DES/RC4 serta timing |
 | `GET` | `/api/files` | Cookie `access_token` | Seluruh metadata file milik pengguna login, urutan ID DESC, tanpa pagination/filter |
 | `GET` | `/api/files/:id` | Cookie `access_token` | Metadata file milik pengguna |
-| `POST` | `/api/files/:id/decrypt` | Cookie `access_token` | Dekripsi dan download byte asli; perbarui timing dekripsi |
+| `POST` | `/api/files/:id/decrypt` | Cookie `access_token` | Dekripsi/download byte asli; pilih algorithm aes/des/rc4, default aes |
 
 Tidak ada prefix versi seperti `/v1`.
 
-`GET /api/files` mengembalikan `200 OK` dengan `{"files":[...]}` (kosong: `{"files":[]}`) dan `Cache-Control: no-store`. Setiap item memakai DTO metadata yang sama dengan `GET /api/files/:id`: `id`, `original_name`, `original_size`, `original_type`, `algorithm`, `aes_encrypt_time_ns`, dan `aes_decrypt_time_ns`. Urutan **ID DESC** berarti record terbaru diinsert terlebih dahulu. Owner berasal dari `AuthMiddleware` yang sudah ada melalui cookie login; query `user_id` dari klien diabaikan dan tidak memberi akses ke file pengguna lain. Endpoint tidak menerima pagination/filter, tidak membaca disk atau mengukur ulang timing, dan tetap menyertakan record historis metadata-only. Response tidak berisi path disk atau key. Error autentikasi `401` mengikuti middleware yang sama (lihat bagian 5); kegagalan pemrosesan menghasilkan `500` dengan `{"message":"Failed to process file"}`. Contoh fetch dan curl cookie jar ada di [Panduan API File](FILES.md).
+`GET /api/files` mengembalikan `200 OK` dengan `{"files":[...]}` (kosong: `{"files":[]}`) dan `Cache-Control: no-store`. Setiap item memakai DTO metadata yang sama dengan `GET /api/files/:id`: `id`, `original_name`, `original_size`, `original_type`, `algorithm` (default AES), `algorithms`, `cipher_set_version`, serta enam field timing AES/DES/RC4; lihat bagian 11. Urutan **ID DESC** berarti record terbaru diinsert terlebih dahulu. Owner berasal dari `AuthMiddleware` yang sudah ada melalui cookie login; query `user_id` dari klien diabaikan dan tidak memberi akses ke file pengguna lain. Endpoint tidak menerima pagination/filter, tidak membaca disk atau mengukur ulang timing, dan tetap menyertakan record historis metadata-only. Response tidak berisi path disk atau key. Error autentikasi `401` mengikuti middleware yang sama (lihat bagian 5); kegagalan pemrosesan menghasilkan `500` dengan `{"message":"Failed to process file"}`. Contoh fetch dan curl cookie jar ada di [Panduan API File](FILES.md).
 
 ### Header request
 
@@ -391,7 +391,7 @@ Tipe error tersebut berlaku untuk response JSON dari controller autentikasi, buk
 
 ## 7. CORS dan checklist integrasi
 
-Router memakai `gin.Default()` dengan middleware CORS. Origin yang diizinkan saat ini hanya **`http://localhost:5173`**, dengan `AllowCredentials: true`. Method yang diizinkan: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`; ini bukan berarti semuanya memiliki endpoint. Header request yang diizinkan: `Origin`, `Content-Type`, `Authorization`. Header response yang diekspos ke JavaScript: `Content-Length`, `Content-Disposition`, `X-Decryption-Time-Ns`.
+Router memakai `gin.Default()` dengan middleware CORS. Origin yang diizinkan saat ini hanya **`http://localhost:5173`**, dengan `AllowCredentials: true`. Method yang diizinkan: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`; ini bukan berarti semuanya memiliki endpoint. Header request yang diizinkan: `Origin`, `Content-Type`, `Authorization`. Header response yang diekspos ke JavaScript: `Content-Length`, `Content-Disposition`, `X-Decryption-Time-Ns`, `X-Decryption-Algorithm`.
 
 Untuk development, gunakan salah satu pendekatan:
 
@@ -741,3 +741,25 @@ Unique `patient_profile_id` menolak pembuatan KTP kedua, termasuk request bersam
 | `500` | Pembacaan profil, kriptografi, atau penyimpanan gagal | `Unable to create patient KTP` |
 
 Semua error memakai JSON `{"message":"..."}`. Tes alur upload/read memakai data sintetis dan repository in-memory; pengujian PostgreSQL nyata tetap perlu dilakukan terpisah.
+
+## 11. File generik tiga cipher
+
+`POST /api/files` tetap menerima multipart field `file`, maksimal 8 MiB file / 9 MiB body. Upload baru selalu menghasilkan AES, DES, dan RC4 dari input sama. Semua ciphertext harus berhasil ditulis dan lolos verifikasi dekripsi dari disk sebelum metadata diinsert. Kegagalan memicu cleanup seluruh ciphertext operasi; kegagalan cleanup juga menghasilkan error. Tidak ada pemilihan satu algoritma saat upload.
+
+`GET /api/files` dan `GET /api/files/:id` tetap owner-scoped. DTO metadata sekarang mencakup:
+
+- `id`, `original_name`, `original_size`, `original_type`.
+- `algorithm`: label AES default yang dipertahankan untuk kompatibilitas, bukan klaim hanya AES disimpan.
+- `algorithms`: nama cipher dengan path nonkosong pada metadata, misalnya `["aes","des","rc4"]`; metadata tidak memverifikasi keberadaan file live.
+- `cipher_set_version`: `1` untuk upload baru yang mewajibkan tiga cipher; `0` untuk legacy AES-only.
+- `aes_encrypt_time_ns`, `aes_decrypt_time_ns`, `des_encrypt_time_ns`, `des_decrypt_time_ns`, `rc4_encrypt_time_ns`, `rc4_decrypt_time_ns`.
+
+Download: **`POST /api/files/:id/decrypt?algorithm=aes|des|rc4`**, tanpa body, cookie login wajib. Algorithm default/kosong adalah `aes`; nilai lain `400`. Untuk versi 1, semua ciphertext wajib lolos autentikasi/dekripsi dan memiliki plaintext identik; satu hilang/rusak/tidak cocok menggagalkan seluruh download, tanpa partial plaintext atau fallback.
+
+Sukses `200` binary bytes asli, `Content-Type: application/octet-stream`, attachment filename, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Decryption-Algorithm` berisi pilihan cipher, dan `X-Decryption-Time-Ns` untuk cipher pilihan. Kedua header dekripsi diekspos melalui CORS. Hanya timing decrypt cipher pilihan yang diupdate pada database, dan kegagalan update membuat request gagal sebelum body sukses dikirim.
+
+Error: `400` input/algorithm invalid; `401` tidak terautentikasi; `404` file tidak ada/bukan milik user; `409` memilih DES/RC4 untuk legacy AES-only; `413` batas ukuran; `500` kegagalan storage/DB/integritas. Bentuk error tetap `{"message":"..."}`; internal error `Failed to process file`.
+
+**Legacy dan batasan:** versi 0 tetap dapat dibaca dengan AES jika envelope valid; tidak otomatis di-backfill. AutoMigrate menambahkan empat kolom timing dan versi set cipher, tetapi migrasi tidak dijalankan dalam sesi ini. Filesystem dan PostgreSQL bukan satu transaksi crash-atomic; crash/cleanup failure dapat meninggalkan orphan. Metadata nama/tipe/ukuran tetap plaintext, DES/RC4 bukan cipher produksi, dan batas video masih 8 MiB.
+
+Timing hanya mencakup fungsi envelope, bukan I/O/network/DB. Download versi 1 memverifikasi ketiganya sehingga latensi HTTP bukan waktu satu cipher; header melaporkan waktu fungsi dekripsi yang dipilih. Bukan benchmark berulang atau klaim seluruh assignment selesai. Detail konfigurasi, envelope, cleanup, pengukuran, dan contoh klien: [FILES.md](FILES.md).
