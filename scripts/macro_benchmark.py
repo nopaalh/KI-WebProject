@@ -25,6 +25,7 @@ class Client:
         resp = conn.getresponse()
         data = resp.read()
         elapsed = time.perf_counter() - start
+        self.last_headers = {k.lower(): v for k, v in resp.getheaders()}
         cookie = resp.getheader("Set-Cookie")
         if cookie:
             self.cookie = cookie.split(";")[0]
@@ -86,40 +87,48 @@ def mib(n):
 
 print(f"repeats={REPEATS}; times in ms (median / min / max) over the repeats; wall time seen by the client\n")
 
-# ---- 1. file umum (dokumen, video): hanya AES saat ini ----
+# ---- 1. file umum (dokumen, video): tiga cipher, dibaca per cipher lewat ?algorithm= ----
 client = new_user("files")
-print("FILE UPLOAD AND DECRYPT (POST /api/files, POST /api/files/:id/decrypt; AES1 only today)")
-print(f"{'input':<16}{'bytes':>9} | {'upload ms':>10}{'':>10}{'':>10} | {'srv enc ms':>10} {'srv dec ms':>10} | {'download ms':>10}{'min':>11}{'max':>11} | MB/s")
+ALGORITHMS = ("aes", "des", "rc4")
+print("FILE UPLOAD (POST /api/files): server-reported cipher time in ms, and client wall time (median/min/max of 3 uploads)")
+print(f"{'input':<14}{'bytes':>9} | {'wall':>8}{'min':>8}{'max':>8} | " + " | ".join(f"{a} enc{'':>2}{a} dec" for a in ALGORITHMS))
 inputs = [("random-16KiB", secrets.token_bytes(16 * KIB)), ("random-256KiB", secrets.token_bytes(256 * KIB)),
           ("random-1MiB", secrets.token_bytes(KIB * KIB)), ("text-1MiB", (b"pasien=Budi;nik=3578012345670001;dosis=5mg\n" * 30000)[:KIB * KIB]),
           ("random-4MiB", secrets.token_bytes(4 * KIB * KIB))]
-first_response = None
+uploaded = []
 for label, data in inputs:
-    reps = REPEATS if len(data) <= KIB * KIB else max(5, REPEATS // 3)
-    uploads, ids = [], []
+    walls, first = [], None
     for _ in range(3):
         body, headers = multipart([("file", f"{label}.bin", "application/octet-stream", data)])
         status, resp, elapsed = client.req("POST", "/files", body, headers)
         must(status, resp, 201, f"upload {label}")
         meta = json.loads(resp)
-        first_response = first_response or meta
-        uploads.append(elapsed)
-        ids.append(meta)
-    file = ids[0].get("file", ids[0])
-    file_id = file["id"]
-    enc_ns = file.get("aes_encrypt_time_ns", 0)
-    dec_ns = file.get("aes_decrypt_time_ns", 0)
-    times = []
+        meta = meta.get("file", meta)
+        first = first or meta
+        walls.append(elapsed)
+    cols = " | ".join(f"{first[a + '_encrypt_time_ns']/1e6:>8.1f}{first[a + '_decrypt_time_ns']/1e6:>8.1f}" for a in ALGORITHMS)
+    print(f"{label:<14}{len(data):>9} | {statistics.median(walls)*1000:>8.1f}{min(walls)*1000:>8.1f}{max(walls)*1000:>8.1f} | {cols}")
+    uploaded.append((label, data, first["id"]))
+
+print(f"\nFILE DOWNLOAD (POST /api/files/:id/decrypt?algorithm=...): {REPEATS} repeats, {max(5, REPEATS // 3)} for 4 MiB, bytes verified by SHA-256")
+print("wall = client time in ms; srv = X-Decryption-Time-Ns of the selected cipher in ms (median)")
+print(f"{'input':<14}{'bytes':>9} {'algo':<5} | {'wall med':>9}{'min':>9}{'max':>9} | {'srv med':>9} | MB/s wall")
+for label, data, file_id in uploaded:
+    reps = REPEATS if len(data) <= KIB * KIB else max(5, REPEATS // 3)
     expected = hashlib.sha256(data).digest()
-    for _ in range(reps):
-        status, resp, elapsed = client.req("POST", f"/files/{file_id}/decrypt")
-        must(status, resp, 200, f"decrypt {label}")
-        if hashlib.sha256(resp).digest() != expected:
-            raise SystemExit(f"{label}: downloaded bytes differ from the original")
-        times.append(elapsed)
-    print(f"{label:<16}{len(data):>9} | {statistics.median(uploads)*1000:>10.1f}{min(uploads)*1000:>10.1f}{max(uploads)*1000:>10.1f} | "
-          f"{enc_ns/1e6:>10.1f} {dec_ns/1e6:>10.1f} | {stats(times)} | {mib(len(data))/statistics.median(times):.2f}")
-print(f"(upload columns: median/min/max of 3 uploads; download: {REPEATS} repeats, {max(5, REPEATS // 3)} for 4 MiB; bytes verified by SHA-256 on every download)\n")
+    for algorithm in ALGORITHMS:
+        walls, server = [], []
+        for _ in range(reps):
+            status, resp, elapsed = client.req("POST", f"/files/{file_id}/decrypt?algorithm={algorithm}")
+            must(status, resp, 200, f"decrypt {label} {algorithm}")
+            if hashlib.sha256(resp).digest() != expected:
+                raise SystemExit(f"{label} {algorithm}: downloaded bytes differ from the original")
+            if client.last_headers.get("x-decryption-algorithm") != algorithm:
+                raise SystemExit(f"{label}: server answered with algorithm {client.last_headers.get('x-decryption-algorithm')}")
+            walls.append(elapsed)
+            server.append(int(client.last_headers["x-decryption-time-ns"]) / 1e9)
+        print(f"{label:<14}{len(data):>9} {algorithm:<5} | {stats(walls)} | {statistics.median(server)*1000:>9.1f} | {mib(len(data))/statistics.median(walls):.2f}")
+print()
 
 # ---- 2. KTP: seluruh field dan foto dienkripsi tiga cipher, dibaca dengan dekripsi ketiganya ----
 print("KTP (POST then GET /api/patients/me/ktp[/photo]; every read decrypts AES, DES and RC4 and compares them)")
@@ -148,4 +157,3 @@ for target in (256 * KIB, KIB * KIB, 4 * KIB * KIB):
         photos.append(elapsed)
     print(f"{'png-' + str(len(photo) // KIB) + 'KiB':<16}{len(photo):>9} | {create*1000:>10.1f} | {stats(texts)} | {stats(photos):>34} | {mib(len(photo))/statistics.median(photos):.2f}")
 print("(photo bytes verified by SHA-256 on every read)")
-print("\nfirst upload response keys:", sorted((first_response.get("file", first_response)).keys()))
