@@ -131,7 +131,7 @@ Bagian ini dipertahankan agar pekerjaan antar-BE tidak kehilangan konteks. **Ini
 ### Cipher dan penyimpanan
 
 - AES saat ini: AES-128-CBC + PKCS7 + HMAC-SHA256, envelope `AES1`.
-- Usulan DES: **single DES**, CBC + PKCS7 + HMAC-SHA256; bukan 3DES.
+- Usulan DES: **single DES**, mode CTR + HMAC-SHA256, tanpa padding, kunci turunan berbeda per file; bukan 3DES. CTR dipilih agar DES bekerja sebagai pembangkit keystream yang di-XOR dengan data seperti RC4, sehingga DES dan RC4 sebanding sebagai cipher aliran dan ukuran ciphertext sama dengan plaintext.
 - Usulan RC4: nonce acak per payload, kunci turunan berbeda per nonce, buang 1536 byte awal keystream, lalu HMAC-SHA256. Ini tidak menjadikan RC4 layak untuk produksi.
 - Usulan master key: gunakan `FILE_ENCRYPTION_KEY` 32 byte dengan derivasi berlabel per cipher dan per fungsi enkripsi/MAC, mengikuti pola AES yang ada.
 - Usulan data terstruktur: satu payload JSON sensitif per record/versi, dienkripsi tiga kali. Konsekuensinya field di dalam payload tidak dapat di-query langsung.
@@ -150,12 +150,12 @@ Sama seperti AES: key adalah master key, HMAC diverifikasi sebelum dekripsi, dan
 
 | Envelope usulan | Format | Turunan kunci usulan |
 | --- | --- | --- |
-| `DES1` | `"DES1" ‖ IV 8 B ‖ DES-CBC + PKCS7 ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption")[:8]`, mac = `HMAC(master, "DES1/authentication")` |
+| `DES1` | `"DES1" ‖ nonce 16 B ‖ DES-CTR ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption" ‖ nonce)[:8]`, mac = `HMAC(master, "DES1/authentication")`; counter 64 bit big-endian mulai dari 0 |
 | `RC41` | `"RC41" ‖ nonce 16 B ‖ RC4-drop1536 ‖ HMAC-SHA256` | enc = `HMAC(master, "RC41/encryption" ‖ nonce)[:16]`, mac = `HMAC(master, "RC41/authentication")` |
 
 HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini harus disepakati sebelum producer/consumer diintegrasikan.
 
-Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR generik untuk eksperimen tambahan dari handoff lama bukan kebutuhan inti dan tidak perlu dikerjakan sebelum kewajiban utama selesai.
+Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR sekarang menjadi mode DES (bukan lagi eksperimen tambahan). Karena AES tetap CBC, selisih AES dan DES pada benchmark mencampur efek cipher dan efek mode, jadi benchmark mikro juga mengukur AES dan DES pada CBC dan CTR yang sama agar kedua efek itu terpisah. Kunci DES unik per file, sehingga nonce tidak perlu berbagi blok dengan counter dan keystream tidak pernah dipakai ulang antar file.
 
 ## 8. Usulan pembagian dan urutan kerja
 
