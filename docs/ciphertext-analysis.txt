@@ -1,0 +1,72 @@
+ANALISIS CIPHERTEXT DAN DEKRIPSI BERULANG - AES1, DES1, RC41
+=============================================================
+
+Cara menjalankan (dari folder backend, PowerShell: $env:ANALYSIS_REPORT=1 lebih dulu):
+  ANALYSIS_REPORT=1 ANALYSIS_FILES="../../frontend/public/images/patient-doctor-v2.png;../../docs/benchmark.txt" \
+    go test ./utils -run TestEnvelopeAnalysisReport -v -count=1 -timeout 30m
+Kode: backend/utils/ciphertext_analysis_test.go. Tiap sel = median dari 30 pengulangan enkripsi dan dekripsi envelope
+(fungsi yang sama dengan yang dipakai endpoint, termasuk nonce, turunan kunci, cipher, dan HMAC). Waktu hanya
+kriptografi: tanpa HTTP, JWT, atau baca/tulis disk. Satu mesin (Ryzen 5 5600H, Windows), 2026-10-27.
+
+Kolom: overhead = ukuran envelope - ukuran plaintext (byte); H = entropi byte Shannon (bit/byte, maksimum 8);
+H(ct) dihitung pada badan ciphertext saja (tanpa magic, nonce, HMAC).
+
+HASIL
+-----
+input                    algo    ct-bytes  overhead H(plain)    H(ct)   enc-median   dec-median  dec-min/max
+text-16KiB               AES1       16452        68   4.6297   7.9888      9.023ms     19.102ms   18ms/36ms
+text-16KiB               DES1       16436        52   4.6297   7.9896     10.544ms     10.048ms    9ms/13ms
+text-16KiB               RC41       16436        52   4.6297   7.9911           0s           0s     0s/1ms
+random-16KiB             AES1       16452        68   7.9890   7.9887      9.834ms     20.105ms   18ms/34ms
+random-16KiB             DES1       16436        52   7.9890   7.9903     10.433ms      9.856ms    8ms/13ms
+random-16KiB             RC41       16436        52   7.9890   7.9887           0s           0s     0s/1ms
+text-256KiB              AES1      262212        68   4.6299   7.9992    124.587ms    286.088ms  280ms/341ms
+text-256KiB              DES1      262196        52   4.6299   7.9993    157.809ms    156.928ms  146ms/222ms
+text-256KiB              RC41      262196        52   4.6299   7.9993      1.001ms        999µs     0s/2ms
+random-256KiB            AES1      262212        68   7.9993   7.9993    123.768ms    284.097ms  275ms/367ms
+random-256KiB            DES1      262196        52   7.9993   7.9992    159.982ms     157.35ms  150ms/181ms
+random-256KiB            RC41      262196        52   7.9993   7.9994      1.002ms      1.006ms     0s/2ms
+text-1024KiB             AES1     1048644        68   4.6299   7.9998    490.373ms    1.134297s 1.096s/1.195s
+text-1024KiB             DES1     1048628        52   4.6299   7.9998    616.167ms     610.63ms  575ms/725ms
+text-1024KiB             RC41     1048628        52   4.6299   7.9998      3.999ms      3.742ms    3ms/18ms
+random-1024KiB           AES1     1048644        68   7.9998   7.9999    497.207ms    1.162457s 1.108s/1.261s
+random-1024KiB           DES1     1048628        52   7.9998   7.9998    639.775ms    630.101ms  586ms/744ms
+random-1024KiB           RC41     1048628        52   7.9998   7.9998      3.999ms      3.494ms    3ms/5ms
+patient-doctor-v2.png    AES1     1154724        66   7.7177   7.9999    539.651ms    1.251777s 1.218s/1.386s
+patient-doctor-v2.png    DES1     1154710        52   7.7177   7.9998    679.805ms    681.693ms  634ms/878ms
+patient-doctor-v2.png    RC41     1154710        52   7.7177   7.9998      4.841ms      4.321ms    4ms/6ms
+benchmark.txt            AES1       55012        61   4.7354   7.9968     27.158ms     60.797ms   59ms/63ms
+benchmark.txt            DES1       55003        52   4.7354   7.9965     32.837ms      33.29ms   29ms/40ms
+benchmark.txt            RC41       55003        52   4.7354   7.9969           0s           0s     0s/1ms
+
+TEMUAN
+------
+1. Overhead konstan, bukan proporsional. DES1 dan RC41 selalu +52 B (4 magic + 16 nonce + 32 HMAC) karena CTR dan
+   RC4 tanpa padding. AES1 +52 B ditambah padding PKCS7 1-16 B, jadi 61-68 B pada data di atas. Pada 1 MiB itu 0,005%;
+   pada 16 KiB 0,32% (DES1/RC41) dan 0,41% (AES1). Untuk data kecil seperti NIK, 52 B per envelope lebih besar daripada
+   isinya, dan setiap field disimpan tiga kali.
+2. Entropi ciphertext hampir maksimum untuk semua cipher dan semua jenis data, termasuk teks berentropi 4,63 bit/byte
+   dan PNG 7,72 bit/byte (naik ke 7,9998). Pada 16 KiB nilainya mentok sekitar 7,989 karena ukuran sampel: data acak
+   murni pada ukuran itu juga 7,989. Entropi tidak membedakan ketiga cipher dan bukan bukti keamanan; DES (kunci 56 bit)
+   dan RC4 tetap lemah meskipun ciphertext-nya tampak acak.
+3. Plaintext yang sama menghasilkan ciphertext berbeda di setiap enkripsi (nonce acak 16 B, kunci turunan per nonce);
+   lebih dari 99% byte badan ciphertext berbeda. Blok plaintext identik tidak menghasilkan blok ciphertext identik
+   (tidak ada pola seperti ECB). Diuji otomatis di TestEnvelopeCiphertextProperties.
+4. Isi data tidak memengaruhi waktu. Teks dan data acak ukuran sama berbeda hanya beberapa persen (derau). Waktu
+   naik hampir linear terhadap ukuran: data 64x lebih besar (16 KiB ke 1 MiB) memakan 54-59x lebih lama pada AES1 dan DES1.
+5. Waktu per 1 MiB (data acak): enkripsi AES1 0,50 s, DES1 0,64 s, RC41 0,004 s; dekripsi AES1 1,16 s, DES1 0,63 s,
+   RC41 0,0035 s. RC4 sekitar 125x lebih cepat dari AES1 saat enkripsi dan sekitar 330x saat dekripsi. DES1 1,3x
+   lebih lambat dari AES1 saat enkripsi tetapi 1,8x lebih cepat saat dekripsi, karena dekripsi AES buatan tangan 2,3x
+   lebih lambat dari enkripsinya (InvMixColumns) sedangkan DES-CTR dan RC4 simetris. Urutan ini hanya berlaku untuk
+   implementasi buatan tangan; dengan crypto/aes dan crypto/des stdlib urutannya berubah (lihat benchmark.txt).
+6. Efek satu bit (TestSingleBitFlipDiffusion): mengubah satu bit plaintext membalik tepat satu bit ciphertext pada
+   AES-CTR, DES-CTR, dan RC4, sedangkan pada AES-CBC lebih dari 99% byte ciphertext berubah. Mode aliran dapat
+   dimanipulasi per bit tanpa kunci; itu alasan setiap envelope memakai HMAC-SHA256 yang diverifikasi sebelum dekripsi.
+
+KETERBATASAN
+------------
+- Satu mesin, satu OS, beban latar tidak dikendalikan; dekripsi berulang menunjukkan rentang (kolom min/maks), bukan
+  interval kepercayaan. Baris 0s berarti di bawah resolusi pewaktu Windows (RC4 pada 16 KiB); abaikan sebagai nilai.
+- Ini waktu kriptografi di memori, bukan latensi endpoint. Pengukuran unduh berulang per cipher lewat HTTP masih
+  menunggu penyimpanan file tiga cipher dan pilihan algoritma saat dekripsi (BACKEND_HANDOFF.md bagian 12).
+- Semua cipher buatan tangan edukasi; angkanya bukan prediksi performa produksi.
