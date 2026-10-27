@@ -20,6 +20,31 @@ func NewPatientProfileController(service *services.PatientProfileService) *Patie
 	return &PatientProfileController{service: service}
 }
 
+func (c *PatientProfileController) Get(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "no-store")
+	value, _ := ctx.Get("userID")
+	userID, ok := value.(uint)
+	if !ok || userID == 0 {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+		return
+	}
+	profile, err := c.service.Get(userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrProfileUnauthorized):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+		case errors.Is(err, services.ErrProfileForbidden):
+			ctx.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
+		case errors.Is(err, services.ErrProfileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"message": "Patient profile not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": "Unable to read patient profile"})
+		}
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"profile": profile})
+}
+
 func (c *PatientProfileController) Create(ctx *gin.Context) {
 	ctx.Header("Cache-Control", "no-store")
 	userID, ok := ctx.Get("userID")
