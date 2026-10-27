@@ -1,5 +1,3 @@
-// Requires the local frontend proxy, Go API, and development PostgreSQL.
-// Creates one synthetic patient account per run; never use real patient data.
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 

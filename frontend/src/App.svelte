@@ -26,9 +26,9 @@
 
   onMount(() => {
     const controller = new AbortController()
-    void loadCurrentUser(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)])).catch(() => {
-      // A missing/expired session leaves the normal login screen available.
-    }).finally(() => { pending = false })
+    void loadCurrentUser(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]))
+      .catch(() => {})
+      .finally(() => { pending = false })
     return () => controller.abort()
   })
 
@@ -111,7 +111,6 @@
     }
     pending = true
     try {
-      // The backend assigns registration roles; /me is the source of account identity.
       const response = await fetch(`/api/users/${mode}`, {
         method: 'POST',
         credentials: 'include',

@@ -6,7 +6,6 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // The workspace is on a Windows drive mounted in WSL.
     watch: { usePolling: true },
     proxy: {
       '/api': 'http://localhost:8080',

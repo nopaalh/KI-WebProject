@@ -19,7 +19,7 @@ Dua job menjalankan pemeriksaan backend dan frontend:
 | `Backend checks` | Go formatting, `go mod verify`, `go vet`, `go test -race` |
 | `Frontend checks` | Node.js 24, `npm ci`, Svelte/TypeScript checks, Vite production build |
 
-Go mengikuti `backend/go.mod`. Frontend memakai lockfile npm dan tidak menghubungi API saat build. Tambahkan `Frontend checks` ke required status checks di pengaturan branch protection agar kegagalan frontend ikut memblokir merge; workflow auto-merge yang ada tetap hanya memeriksa prasyarat `Backend checks`. CI tidak menjalankan smoke test, Python smoke harness, Docker, atau PostgreSQL nyata. Smoke test tetap dapat dijalankan manual sesuai [SMOKE_TEST.md](SMOKE_TEST.md). CI hijau tidak membuktikan integrasi PostgreSQL atau seluruh rancangan rumah sakit sudah berjalan.
+Go mengikuti `backend/go.mod`. Frontend memakai lockfile npm dan dibangun tanpa koneksi API. Status `Frontend checks` hanya memblokir merge jika diwajibkan oleh branch protection; auto-merge yang ada memeriksa `Backend checks`. CI tidak menjalankan smoke test, Python smoke harness, Docker, atau PostgreSQL nyata. Smoke test tetap dapat dijalankan manual sesuai [SMOKE_TEST.md](SMOKE_TEST.md). CI hijau tidak membuktikan integrasi PostgreSQL atau seluruh rancangan rumah sakit sudah berjalan.
 
 ### `.github/workflows/auto-merge.yml`
 
