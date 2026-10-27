@@ -1,0 +1,506 @@
+HASIL BENCHMARK MIKRO AES, DES, RC4
+===================================
+
+Tanggal   : 2026-10-27
+Mesin     : AMD Ryzen 5 5600H, Windows, amd64 (satu mesin, satu sesi)
+Kode      : backend/utils/benchmark_test.go
+Perintah  : go test ./utils -run '^$' -bench 'Raw' -benchtime=3x -count=10
+            go test ./utils -run '^$' -bench 'Envelopes' -benchtime=3x -count=10
+Data      : acak dengan seed tetap (kecepatan cipher tidak bergantung pada isi data)
+Agregasi  : median dari 10 pengulangan; CV = simpangan baku / rata-rata
+Catatan   : AES memakai prepareAES128(key).encrypt (kunci disiapkan sekali), bukan AesEncrypt128.
+            Hanya arah enkripsi untuk CBC. Implementasi buatan tangan tidak dioptimasi.
+
+RINGKASAN (median, 1 MiB)
+-------------------------
+Raw (cipher + mode, kunci disiapkan di luar pengukuran)
+  kasus            waktu (ms)   MB/s     catatan
+  RC4                    2,85    368
+  AES-CTR              417,09    2,5
+  AES-CBC              460,00    2,3
+  DES-CTR              577,90    1,8
+  DES-CBC              567,79    1,85
+  stdlib RC4             2,22    473
+  stdlib AES-CTR         0,33   3182     memakai instruksi AES di CPU
+  stdlib DES-CTR        12,05     87
+
+Envelope (nonce, turunan kunci, cipher, HMAC)
+  kasus            waktu (ms)   MB/s
+  AES1 enkripsi        454,98    2,3
+  AES1 dekripsi       1074,93    0,98
+  DES1 enkripsi        580,04    1,8
+  DES1 dekripsi        592,03    1,8
+  RC41 enkripsi          3,54    296
+  RC41 dekripsi          3,30    318
+
+TEMUAN
+------
+1. RC4 sekitar 150x lebih cepat dari AES dan 200x dari DES pada implementasi buatan tangan.
+2. Peringkat bergantung implementasi: buatan tangan RC4 >> AES > DES; stdlib AES >> RC4 > DES.
+   Selisih AES buatan tangan dengan stdlib lebih dari 1000x (stdlib memakai AES-NI).
+3. DES hanya 1,4x lebih lambat dari AES per byte. Per blok DES lebih cepat (sekitar 4,4 us vs 6,4 us),
+   tetapi bloknya setengah ukuran AES.
+4. DES mengalokasikan sekitar 438 MB dan 11,1 juta alokasi per operasi 1 MiB (representasi satu elemen
+   per bit); AES 1 alokasi per blok.
+5. CBC vs CTR hampir tidak memengaruhi kecepatan (DES selisih di bawah 2%, AES sekitar 10%, sebagian
+   karena alat ukur CBC). Biaya cipher mendominasi.
+6. Dekripsi AES 2,4x lebih lambat dari enkripsinya (InvMixColumns memanggil perkalian GF dua kali lebih
+   banyak). DES-CTR dan RC4 simetris.
+7. Overhead envelope kecil: AES1 455 ms vs CBC mentah 460 ms, DES1 580 ms vs DES-CTR 578 ms,
+   RC41 3,5 ms vs RC4 2,85 ms (HMAC-SHA256).
+
+PERKIRAAN WAKTU UPLOAD (tiga cipher disimpan)
+---------------------------------------------
+  skenario                          s per MiB   batas 10 s   batas 30 s   file 8 MiB
+  verifikasi round-trip 3 cipher       2,71        3,7 MiB     11,1 MiB      21,7 s
+  hanya AES yang diverifikasi          2,11        4,7 MiB     14,2 MiB      16,9 s
+  tanpa verifikasi                     1,04        9,6 MiB     28,9 MiB       8,3 s
+Unduhan satu representasi: AES 1,07 s/MiB, DES 0,59 s/MiB, RC4 sekitar 3 ms/MiB.
+
+KEANDALAN DAN KETERBATASAN
+--------------------------
+- CV umumnya di bawah 4% pada 256 KiB dan 1 MiB; median menahan pencilan.
+- Pencilan: AES-CTR 16 KiB (CV 17,6%), DES-CTR 256 KiB (satu pengulangan 216 ms vs median 150 ms),
+  AES1-encrypt 16 KiB (CV 15,4%).
+- Kasus yang sangat cepat (stdlib 16 dan 256 KiB) tidak andal dengan -benchtime=3x; ulangi dengan
+  -benchtime bawaan.
+- Satu mesin dan satu sesi; status daya laptop tidak tercatat.
+
+DATA MENTAH (format keluaran go test -bench, kompatibel dengan benchstat)
+=========================================================================
+
+--- BenchmarkRawModes ---
+goos: windows
+goarch: amd64
+pkg: project1/utils
+cpu: AMD Ryzen 5 5600H with Radeon Graphics         
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6624867 ns/op	   2.47 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6600367 ns/op	   2.48 MB/s	   32789 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6689033 ns/op	   2.45 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6622533 ns/op	   2.47 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6840867 ns/op	   2.40 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   7110933 ns/op	   2.30 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   6725233 ns/op	   2.44 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   9592567 ns/op	   1.71 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	  10439000 ns/op	   1.57 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/16KiB-12         	       3	   7440233 ns/op	   2.20 MB/s	   32784 B/op	    1026 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 115928900 ns/op	   2.26 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 105686467 ns/op	   2.48 MB/s	  524314 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 107452933 ns/op	   2.44 MB/s	  524309 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 109014233 ns/op	   2.40 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 107955100 ns/op	   2.43 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 108058267 ns/op	   2.43 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 104764233 ns/op	   2.50 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 105236633 ns/op	   2.49 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 104471467 ns/op	   2.51 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/256KiB-12        	       3	 102846033 ns/op	   2.55 MB/s	  524304 B/op	   16386 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 417210000 ns/op	   2.51 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 416536100 ns/op	   2.52 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 415143233 ns/op	   2.53 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 415908067 ns/op	   2.52 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 425842833 ns/op	   2.46 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 416978900 ns/op	   2.51 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 417726933 ns/op	   2.51 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 419104200 ns/op	   2.50 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 416136367 ns/op	   2.52 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CTR/1024KiB-12       	       3	 417993200 ns/op	   2.51 MB/s	 2097168 B/op	   65538 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7633267 ns/op	   2.15 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7277433 ns/op	   2.25 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7335867 ns/op	   2.23 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7480933 ns/op	   2.19 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7275767 ns/op	   2.25 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7523300 ns/op	   2.18 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7372700 ns/op	   2.22 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7705967 ns/op	   2.13 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7413167 ns/op	   2.21 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/16KiB-12         	       3	   7638400 ns/op	   2.14 MB/s	   89392 B/op	    2054 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 116152233 ns/op	   2.26 MB/s	 1392725 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 114900567 ns/op	   2.28 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 114749767 ns/op	   2.28 MB/s	 1392762 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 115733100 ns/op	   2.27 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 114720467 ns/op	   2.29 MB/s	 1392693 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 114093567 ns/op	   2.30 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 123333900 ns/op	   2.13 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 116181033 ns/op	   2.26 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 115608200 ns/op	   2.27 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/256KiB-12        	       3	 114737467 ns/op	   2.28 MB/s	 1392688 B/op	   32774 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 458827267 ns/op	   2.29 MB/s	 5521530 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 458648967 ns/op	   2.29 MB/s	 5521493 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 458804567 ns/op	   2.29 MB/s	 5521456 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 463585900 ns/op	   2.26 MB/s	 5521493 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 459297167 ns/op	   2.28 MB/s	 5521493 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 462126833 ns/op	   2.27 MB/s	 5521530 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 457211300 ns/op	   2.29 MB/s	 5521456 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 460956000 ns/op	   2.27 MB/s	 5521530 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 460710833 ns/op	   2.28 MB/s	 5521456 B/op	  131078 allocs/op
+BenchmarkRawModes/AES-CBC/1024KiB-12       	       3	 462254067 ns/op	   2.27 MB/s	 5521605 B/op	  131079 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   8916033 ns/op	   1.84 MB/s	 6848570 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   8768600 ns/op	   1.87 MB/s	 6848538 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   9125200 ns/op	   1.80 MB/s	 6848528 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   8888133 ns/op	   1.84 MB/s	 6850226 B/op	  174084 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   9076900 ns/op	   1.81 MB/s	 6848570 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   9244567 ns/op	   1.77 MB/s	 6848565 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   9146433 ns/op	   1.79 MB/s	 6848570 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   8984500 ns/op	   1.82 MB/s	 6848613 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   8890467 ns/op	   1.84 MB/s	 6848613 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/16KiB-12         	       3	   9334100 ns/op	   1.76 MB/s	 6848576 B/op	  174082 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 153543833 ns/op	   1.71 MB/s	109576688 B/op	 2785284 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 153037733 ns/op	   1.71 MB/s	109576858 B/op	 2785285 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 152217600 ns/op	   1.72 MB/s	109576928 B/op	 2785286 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 148995833 ns/op	   1.76 MB/s	109577797 B/op	 2785293 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 215822900 ns/op	   1.21 MB/s	109578218 B/op	 2785297 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 150010167 ns/op	   1.75 MB/s	109577930 B/op	 2785294 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 148688633 ns/op	   1.76 MB/s	109578544 B/op	 2785300 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 148864300 ns/op	   1.76 MB/s	109578501 B/op	 2785300 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 150307900 ns/op	   1.74 MB/s	109578224 B/op	 2785297 allocs/op
+BenchmarkRawModes/DES-CTR/256KiB-12        	       3	 148918567 ns/op	   1.76 MB/s	109577232 B/op	 2785288 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 578773200 ns/op	   1.81 MB/s	438310352 B/op	11141164 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 579401167 ns/op	   1.81 MB/s	438308320 B/op	11141146 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 575107133 ns/op	   1.82 MB/s	438312264 B/op	11141168 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 583481600 ns/op	   1.80 MB/s	438311013 B/op	11141169 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 578796833 ns/op	   1.81 MB/s	438309568 B/op	11141157 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 574988800 ns/op	   1.82 MB/s	438311146 B/op	11141171 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 577035933 ns/op	   1.82 MB/s	438309733 B/op	11141158 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 576216467 ns/op	   1.82 MB/s	438311296 B/op	11141173 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 579359100 ns/op	   1.81 MB/s	438311541 B/op	11141174 allocs/op
+BenchmarkRawModes/DES-CTR/1024KiB-12       	       3	 574116367 ns/op	   1.83 MB/s	438311098 B/op	11141171 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9282400 ns/op	   1.77 MB/s	 6908453 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9406367 ns/op	   1.74 MB/s	 6908448 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9025833 ns/op	   1.82 MB/s	 6908528 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9294900 ns/op	   1.76 MB/s	 6908453 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9274867 ns/op	   1.77 MB/s	 6908560 B/op	  176219 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9177033 ns/op	   1.79 MB/s	 6908448 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9105800 ns/op	   1.80 MB/s	 6908453 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9265300 ns/op	   1.77 MB/s	 6908522 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   8903533 ns/op	   1.84 MB/s	 6908453 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/16KiB-12         	       3	   9227800 ns/op	   1.78 MB/s	 6908448 B/op	  176218 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 152165233 ns/op	   1.72 MB/s	110449712 B/op	 2818153 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 152956433 ns/op	   1.71 MB/s	110449701 B/op	 2818153 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 152457267 ns/op	   1.72 MB/s	110450336 B/op	 2818159 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 154483200 ns/op	   1.70 MB/s	110450288 B/op	 2818159 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 153580867 ns/op	   1.71 MB/s	110450309 B/op	 2818159 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 154909633 ns/op	   1.69 MB/s	110449546 B/op	 2818152 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 157673767 ns/op	   1.66 MB/s	110448165 B/op	 2818140 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 152218867 ns/op	   1.72 MB/s	110450058 B/op	 2818157 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 154140133 ns/op	   1.70 MB/s	110448762 B/op	 2818145 allocs/op
+BenchmarkRawModes/DES-CBC/256KiB-12        	       3	 158602933 ns/op	   1.65 MB/s	110448661 B/op	 2818144 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 566731467 ns/op	   1.85 MB/s	441734885 B/op	11272303 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 565964533 ns/op	   1.85 MB/s	441735050 B/op	11272305 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 566318400 ns/op	   1.85 MB/s	441735605 B/op	11272310 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 565731700 ns/op	   1.85 MB/s	441734608 B/op	11272301 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 566516333 ns/op	   1.85 MB/s	441735258 B/op	11272307 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 568850100 ns/op	   1.84 MB/s	441735200 B/op	11272306 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 572169567 ns/op	   1.83 MB/s	441735402 B/op	11272308 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 579007233 ns/op	   1.81 MB/s	441733344 B/op	11272289 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 574779300 ns/op	   1.82 MB/s	441733408 B/op	11272290 allocs/op
+BenchmarkRawModes/DES-CBC/1024KiB-12       	       3	 579422200 ns/op	   1.81 MB/s	441733445 B/op	11272290 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     48933 ns/op	 334.82 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     46700 ns/op	 350.84 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     45533 ns/op	 359.82 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     45400 ns/op	 360.88 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     46567 ns/op	 351.84 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     46933 ns/op	 349.09 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     46633 ns/op	 351.34 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     46033 ns/op	 355.92 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     45633 ns/op	 359.04 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/16KiB-12             	       3	     47800 ns/op	 342.76 MB/s	   16384 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    699833 ns/op	 374.58 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    656033 ns/op	 399.59 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    657267 ns/op	 398.84 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    920167 ns/op	 284.89 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    670767 ns/op	 390.81 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    810367 ns/op	 323.49 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    663033 ns/op	 395.37 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    662767 ns/op	 395.53 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    717333 ns/op	 365.44 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/256KiB-12            	       3	    658733 ns/op	 397.95 MB/s	  262144 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   3156100 ns/op	 332.24 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2883367 ns/op	 363.66 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2845400 ns/op	 368.52 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2834800 ns/op	 369.89 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2895567 ns/op	 362.13 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2834033 ns/op	 369.99 MB/s	 1048613 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2850933 ns/op	 367.80 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2842033 ns/op	 368.95 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2833133 ns/op	 370.11 MB/s	 1048576 B/op	       1 allocs/op
+BenchmarkRawModes/RC4/1024KiB-12           	       3	   2933100 ns/op	 357.50 MB/s	 1048613 B/op	       1 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      8833 ns/op	1854.79 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      4267 ns/op	3840.00 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      3333 ns/op	4915.20 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      3067 ns/op	5342.61 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      3233 ns/op	5067.22 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      2967 ns/op	5522.70 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      9167 ns/op	1787.35 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      5367 ns/op	3052.92 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      2967 ns/op	5522.70 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/16KiB-12  	       3	      2967 ns/op	5522.70 MB/s	   16912 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	    132533 ns/op	1977.95 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     93367 ns/op	2807.68 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     39300 ns/op	6670.33 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     79533 ns/op	3296.03 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     85300 ns/op	3073.20 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     80200 ns/op	3268.63 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     78400 ns/op	3343.67 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     91833 ns/op	2854.56 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     89333 ns/op	2934.45 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/256KiB-12 	       3	     81967 ns/op	3198.18 MB/s	  262672 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    463167 ns/op	2263.93 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    330500 ns/op	3172.70 MB/s	 1050802 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    328667 ns/op	3190.39 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    289733 ns/op	3619.11 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    310233 ns/op	3379.96 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    395900 ns/op	2648.59 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    313433 ns/op	3345.45 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    276933 ns/op	3786.38 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    362233 ns/op	2894.75 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-AES-CTR/1024KiB-12         	       3	    408533 ns/op	2566.68 MB/s	 1049104 B/op	       3 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    189567 ns/op	  86.43 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    192867 ns/op	  84.95 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    187300 ns/op	  87.47 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    198433 ns/op	  82.57 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    199900 ns/op	  81.96 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    188533 ns/op	  86.90 MB/s	   17008 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    191233 ns/op	  85.68 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    218133 ns/op	  75.11 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    188067 ns/op	  87.12 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/16KiB-12           	       3	    200167 ns/op	  81.85 MB/s	   16992 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2976000 ns/op	  88.09 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2997467 ns/op	  87.46 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   3143800 ns/op	  83.38 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2998867 ns/op	  87.41 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   3297333 ns/op	  79.50 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2948900 ns/op	  88.90 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   3008433 ns/op	  87.14 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   3162500 ns/op	  82.89 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2936733 ns/op	  89.26 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/256KiB-12          	       3	   2890633 ns/op	  90.69 MB/s	  262752 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  11990400 ns/op	  87.45 MB/s	 1049221 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  12130033 ns/op	  86.44 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  11829767 ns/op	  88.64 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  12102667 ns/op	  86.64 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  11830333 ns/op	  88.63 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  12220533 ns/op	  85.80 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  11952833 ns/op	  87.73 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  12161533 ns/op	  86.22 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  11783067 ns/op	  88.99 MB/s	 1049184 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-DES-CTR/1024KiB-12         	       3	  12147433 ns/op	  86.32 MB/s	 1049189 B/op	       5 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     56933 ns/op	 287.78 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     43267 ns/op	 378.67 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     37267 ns/op	 439.64 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     38533 ns/op	 425.19 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     36800 ns/op	 445.22 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     37233 ns/op	 440.04 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     36533 ns/op	 448.47 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     41067 ns/op	 398.96 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     49300 ns/op	 332.33 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/16KiB-12               	       3	     37467 ns/op	 437.30 MB/s	   17536 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    766267 ns/op	 342.11 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    508600 ns/op	 515.42 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    505133 ns/op	 518.96 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    502100 ns/op	 522.10 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    515867 ns/op	 508.16 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    514633 ns/op	 509.38 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    504167 ns/op	 519.96 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    659333 ns/op	 397.59 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    540200 ns/op	 485.27 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/256KiB-12              	       3	    515467 ns/op	 508.56 MB/s	  263296 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2330933 ns/op	 449.85 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2171700 ns/op	 482.84 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2219300 ns/op	 472.48 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2164533 ns/op	 484.44 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2162000 ns/op	 485.00 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2212833 ns/op	 473.86 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2393800 ns/op	 438.04 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2178300 ns/op	 481.37 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2256500 ns/op	 464.69 MB/s	 1049728 B/op	       2 allocs/op
+BenchmarkRawModes/stdlib-RC4/1024KiB-12             	       3	   2290867 ns/op	 457.72 MB/s	 1049728 B/op	       2 allocs/op
+PASS
+ok  	project1/utils	106.206s
+
+--- BenchmarkEnvelopes ---
+goos: windows
+goarch: amd64
+pkg: project1/utils
+cpu: AMD Ryzen 5 5600H with Radeon Graphics         
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   8478500 ns/op	   1.93 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   8602300 ns/op	   1.90 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   8403800 ns/op	   1.95 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   8514700 ns/op	   1.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	  11152133 ns/op	   1.47 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	  11226100 ns/op	   1.46 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   9220533 ns/op	   1.78 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	   9041133 ns/op	   1.81 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	  10576900 ns/op	   1.55 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/16KiB-12         	       3	  13075300 ns/op	   1.25 MB/s	   20536 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 130428233 ns/op	   2.01 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 120759700 ns/op	   2.17 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 121283300 ns/op	   2.16 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 117340367 ns/op	   2.23 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 116874367 ns/op	   2.24 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 116608267 ns/op	   2.25 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 114302900 ns/op	   2.29 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 114669633 ns/op	   2.29 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 116002233 ns/op	   2.26 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/256KiB-12        	       3	 114759767 ns/op	   2.28 MB/s	  272456 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 456010467 ns/op	   2.30 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 459840933 ns/op	   2.28 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 454823400 ns/op	   2.31 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 456964100 ns/op	   2.29 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 455139433 ns/op	   2.30 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 453438300 ns/op	   2.31 MB/s	 1058893 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 453445967 ns/op	   2.31 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 452805467 ns/op	   2.32 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 455273433 ns/op	   2.30 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-encrypt/1024KiB-12       	       3	 453407767 ns/op	   2.31 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  18195100 ns/op	   0.90 MB/s	   20525 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17785633 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  18109767 ns/op	   0.90 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17875100 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17833400 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17884100 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17961600 ns/op	   0.91 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17851900 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17870700 ns/op	   0.92 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/16KiB-12         	       3	  17931633 ns/op	   0.91 MB/s	   20520 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 269230067 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 270294333 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 270813867 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 268097100 ns/op	   0.98 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 270836133 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 270382267 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 269815167 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 269688867 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 270484867 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/256KiB-12        	       3	 269552433 ns/op	   0.97 MB/s	  272424 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1075711867 ns/op	   0.97 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1075064267 ns/op	   0.98 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1080747633 ns/op	   0.97 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1074789233 ns/op	   0.98 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1082403800 ns/op	   0.97 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1076527233 ns/op	   0.97 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1072636967 ns/op	   0.98 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1074318400 ns/op	   0.98 MB/s	 1058930 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1069559000 ns/op	   0.98 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/AES1-decrypt/1024KiB-12       	       3	1072973567 ns/op	   0.98 MB/s	 1058856 B/op	      21 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9203567 ns/op	   1.78 MB/s	 6871298 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9281400 ns/op	   1.77 MB/s	 6871288 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9164300 ns/op	   1.79 MB/s	 6871368 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9220933 ns/op	   1.78 MB/s	 6871362 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9339800 ns/op	   1.75 MB/s	 6871368 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9538267 ns/op	   1.72 MB/s	 6871293 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9743833 ns/op	   1.68 MB/s	 6871330 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9253933 ns/op	   1.77 MB/s	 6871293 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9889733 ns/op	   1.66 MB/s	 6873040 B/op	  174170 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/16KiB-12         	       3	   9601600 ns/op	   1.71 MB/s	 6871368 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 154503633 ns/op	   1.70 MB/s	109853234 B/op	 2785386 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 155935967 ns/op	   1.68 MB/s	109853469 B/op	 2785388 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 155695000 ns/op	   1.68 MB/s	109853026 B/op	 2785384 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 155148967 ns/op	   1.69 MB/s	109853325 B/op	 2785387 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 154467000 ns/op	   1.70 MB/s	109853224 B/op	 2785386 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 155654500 ns/op	   1.68 MB/s	109853357 B/op	 2785387 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 156569033 ns/op	   1.67 MB/s	109852637 B/op	 2785381 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 156149667 ns/op	   1.68 MB/s	109853832 B/op	 2785391 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 156175700 ns/op	   1.68 MB/s	109853368 B/op	 2785388 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/256KiB-12        	       3	 156810967 ns/op	   1.67 MB/s	109853128 B/op	 2785385 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 576827867 ns/op	   1.82 MB/s	439369608 B/op	11141235 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 579098800 ns/op	   1.81 MB/s	439367890 B/op	11141219 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 585363667 ns/op	   1.79 MB/s	439367304 B/op	11141214 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 592929067 ns/op	   1.77 MB/s	439367400 B/op	11141215 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 578181733 ns/op	   1.81 MB/s	439369864 B/op	11141237 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 580979167 ns/op	   1.80 MB/s	439367714 B/op	11141218 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 586462833 ns/op	   1.79 MB/s	439367154 B/op	11141214 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 581761400 ns/op	   1.80 MB/s	439368749 B/op	11141227 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 577490900 ns/op	   1.82 MB/s	439367848 B/op	11141219 allocs/op
+BenchmarkEnvelopes/DES1-encrypt/1024KiB-12       	       3	 578306267 ns/op	   1.81 MB/s	439367181 B/op	11141213 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9110833 ns/op	   1.80 MB/s	 6852936 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9122367 ns/op	   1.80 MB/s	 6853016 B/op	  174168 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9490533 ns/op	   1.73 MB/s	 6852941 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9324467 ns/op	   1.76 MB/s	 6852866 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9135433 ns/op	   1.79 MB/s	 6852904 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9598533 ns/op	   1.71 MB/s	 6852909 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9215667 ns/op	   1.78 MB/s	 6852941 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9856567 ns/op	   1.66 MB/s	 6852941 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   8939467 ns/op	   1.83 MB/s	 6852856 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/16KiB-12         	       3	   9452467 ns/op	   1.73 MB/s	 6852872 B/op	  174167 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 149064100 ns/op	   1.76 MB/s	109581938 B/op	 2785377 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150617800 ns/op	   1.74 MB/s	109582205 B/op	 2785379 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 152274000 ns/op	   1.72 MB/s	109582120 B/op	 2785378 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150803833 ns/op	   1.74 MB/s	109582728 B/op	 2785384 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150463100 ns/op	   1.74 MB/s	109583576 B/op	 2785391 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150754000 ns/op	   1.74 MB/s	109581853 B/op	 2785376 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 149760733 ns/op	   1.75 MB/s	109582002 B/op	 2785377 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150234333 ns/op	   1.74 MB/s	109582674 B/op	 2785383 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 150061767 ns/op	   1.75 MB/s	109582472 B/op	 2785382 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/256KiB-12        	       3	 151594533 ns/op	   1.73 MB/s	109582205 B/op	 2785379 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 590027967 ns/op	   1.78 MB/s	438311853 B/op	11141223 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 578892667 ns/op	   1.81 MB/s	438314018 B/op	11141243 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 584024700 ns/op	   1.80 MB/s	438316584 B/op	11141266 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 584428500 ns/op	   1.79 MB/s	438312920 B/op	11141233 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 588928433 ns/op	   1.78 MB/s	438310861 B/op	11141215 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 612504800 ns/op	   1.71 MB/s	438310610 B/op	11141212 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 594603767 ns/op	   1.76 MB/s	438311741 B/op	11141222 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 594023333 ns/op	   1.77 MB/s	438310680 B/op	11141213 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 596100533 ns/op	   1.76 MB/s	438310898 B/op	11141214 allocs/op
+BenchmarkEnvelopes/DES1-decrypt/1024KiB-12       	       3	 594242633 ns/op	   1.76 MB/s	438310733 B/op	11141213 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     58633 ns/op	 279.43 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     72500 ns/op	 225.99 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     60433 ns/op	 271.11 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     58200 ns/op	 281.51 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     58433 ns/op	 280.39 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     78100 ns/op	 209.78 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     64167 ns/op	 255.34 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     69067 ns/op	 237.22 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     66700 ns/op	 245.64 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/16KiB-12         	       3	     65267 ns/op	 251.03 MB/s	   36200 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    997500 ns/op	 262.80 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    899133 ns/op	 291.55 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    846500 ns/op	 309.68 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    814433 ns/op	 321.87 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    793933 ns/op	 330.18 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    795833 ns/op	 329.40 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    860767 ns/op	 304.55 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    805200 ns/op	 325.56 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    939933 ns/op	 278.90 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/256KiB-12        	       3	    807033 ns/op	 324.82 MB/s	  533864 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3816000 ns/op	 274.78 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3540367 ns/op	 296.18 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3414500 ns/op	 307.10 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3603500 ns/op	 290.99 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3459633 ns/op	 303.09 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3605200 ns/op	 290.85 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3480167 ns/op	 301.30 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3573833 ns/op	 293.40 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3445000 ns/op	 304.38 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-encrypt/1024KiB-12       	       3	   3542033 ns/op	 296.04 MB/s	 2106728 B/op	      21 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     73300 ns/op	 223.52 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     64200 ns/op	 255.20 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     55933 ns/op	 292.92 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     55700 ns/op	 294.15 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     57667 ns/op	 284.12 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     56133 ns/op	 291.88 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     60633 ns/op	 270.21 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     59267 ns/op	 276.45 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     60233 ns/op	 272.01 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/16KiB-12         	       3	     55800 ns/op	 293.62 MB/s	   17768 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    849633 ns/op	 308.54 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    836567 ns/op	 313.36 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    866133 ns/op	 302.66 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    834667 ns/op	 314.07 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    841267 ns/op	 311.61 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    843000 ns/op	 310.97 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    847933 ns/op	 309.16 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    865667 ns/op	 302.82 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    853900 ns/op	 307.00 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/256KiB-12        	       3	    812567 ns/op	 322.61 MB/s	  263528 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3484600 ns/op	 300.92 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3151700 ns/op	 332.70 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3408600 ns/op	 307.63 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3219433 ns/op	 325.70 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3199767 ns/op	 327.70 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3272900 ns/op	 320.38 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3329033 ns/op	 314.98 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3526433 ns/op	 297.35 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3329467 ns/op	 314.94 MB/s	 1049960 B/op	      20 allocs/op
+BenchmarkEnvelopes/RC41-decrypt/1024KiB-12       	       3	   3232800 ns/op	 324.36 MB/s	 1049960 B/op	      20 allocs/op
+PASS
+ok  	project1/utils	165.749s
