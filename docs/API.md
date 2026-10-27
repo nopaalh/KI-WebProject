@@ -17,7 +17,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | Baca data KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp`; lihat [kontrak KTP](#10-ktp-pasien) |
 | Baca foto KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp/photo`; lihat bagian 10.4 |
-| Create KTP dan upload foto | Belum tersedia; `POST /api/patients/me/ktp` belum diimplementasikan |
+| Create KTP dan upload foto | Tersedia; `POST /api/patients/me/ktp`, multipart data JSON + photo; lihat bagian 10.7 |
 | RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik masih AES |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
@@ -40,6 +40,7 @@ Semua endpoint yang tersedia:
 | `GET` | `/api/users/me` | Cookie `access_token` | Identitas dan role terbaru user login; berbeda dari profil pasien |
 | `POST` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membuat profil pasien sendiri; kontrak di bagian 9 |
 | `GET` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membaca profil sendiri beserta NIK/BPJS terdekripsi; kontrak di bagian 9 |
+| `POST` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membuat data KTP dan upload foto; kontrak di bagian 10.7 |
 | `GET` | `/api/patients/me/ktp` | Cookie `access_token`, role `patient` | Membaca data KTP sendiri; kontrak di bagian 10 |
 | `GET` | `/api/patients/me/ktp/photo` | Cookie `access_token`, role `patient` | Mengambil bytes foto KTP sendiri setelah dekripsi; kontrak di bagian 10.4 |
 | `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripc.PatientProfileCosi, dan simpan file serta timing |
@@ -403,7 +404,7 @@ Jika backend berubah, perbarui dokumen ini berdasarkan router dan controller yan
 
 ## 9. Profil pasien
 
-Kontrak berikut mengikuti endpoint yang sudah dipasang di `backend/routers/patientRouter.go`. Endpoint ini berbeda dari `GET /api/users/me`, yang hanya mengembalikan identitas akun dan role. Belum ada endpoint update/delete profil. Kontrak pembacaan KTP tersedia di bagian 10; create/upload KTP belum tersedia.
+Kontrak berikut mengikuti endpoint yang sudah dipasang di `backend/routers/patientRouter.go`. Endpoint ini berbeda dari `GET /api/users/me`, yang hanya mengembalikan identitas akun dan role. Belum ada endpoint update/delete profil. Kontrak create/upload dan pembacaan KTP tersedia di bagian 10.
 
 ### Autentikasi dan ownership
 
@@ -517,11 +518,11 @@ Detail schema, key, kompatibilitas data lama, dan pengujian ada di [PATIENT_PROF
 | --- | --- | --- |
 | `POST /api/patients/me/profile` | Pasien membuat profil sendiri | Tersedia |
 | `GET /api/patients/me/profile` | Pasien membaca profil sendiri | Tersedia |
-| `POST /api/patients/me/ktp` | Pasien mengirim data KTP dan foto | **Belum tersedia** |
+| `POST /api/patients/me/ktp` | Pasien mengirim data KTP dan foto | Tersedia |
 | `GET /api/patients/me/ktp` | Pasien membaca data KTP sendiri | Tersedia |
 | `GET /api/patients/me/ktp/photo` | Pasien mengambil foto KTP setelah dekripsi | Tersedia |
 
-**Belum ada alur upload KTP dari aplikasi.** Kedua GET membaca record yang benar-benar sudah ada di PostgreSQL; tanpa profil/record KTP, responsnya `404`. Fixture KTP pada tes adalah data sintetis, bukan hasil upload melalui API. Jangan menampilkan data contoh sebagai KTP yang sudah tersimpan.
+Alur backend tersedia: buat profil → POST data/foto KTP → GET data/foto sendiri. Kedua GET membaca record yang benar-benar tersimpan; tanpa profil/record KTP, responsnya `404`. Contoh dan fixture tes memakai data sintetis; jangan menampilkan data contoh sebagai record pasien sungguhan.
 
 ### 10.2. Autentikasi, ownership, dan integritas
 
@@ -590,7 +591,7 @@ Untuk JPEG, Content-Type adalah `image/jpeg` dan filename `ktp.jpg`. Nama file t
 - Semua pemeriksaan selesai sebelum pengiriman binary. Jika gagal, respons JSON generik dikirim tanpa bytes foto sebagian. Foto kosong/rusak pada record yang sudah ada menghasilkan `500`, bukan `404`.
 - Frontend mengecek `response.ok` terlebih dahulu. Sukses dibaca dengan `response.blob()` atau `arrayBuffer()`; error dibaca sebagai JSON. Jangan menyimpan foto ke browser storage atau log.
 
-**POST `/api/patients/me/ktp` masih belum tersedia.** GET foto hanya membaca record yang sudah tersimpan; foto pada tes merupakan fixture sintetis, bukan hasil upload API.
+POST `/api/patients/me/ktp` pada bagian 10.7 menyediakan upload yang dapat dibaca kembali lewat endpoint ini. Foto pada tes merupakan data sintetis.
 
 ### 10.5. Error kedua GET KTP
 
@@ -606,6 +607,104 @@ Semua error berbentuk `{"message":"..."}` tanpa data KTP atau bytes foto sebagia
 
 ### 10.6. Batas implementasi dan verifikasi
 
-Endpoint read, tes router/service dengan cipher sungguhan, dan tes SQL DryRun tersedia. Tes memakai record KTP dan foto sintetis; mencakup kesamaan bytes PNG/JPEG, penolakan akses tidak sah, ciphertext rusak/tidak cocok, serta batas ukuran/dimensi. Tes belum merupakan verifikasi PostgreSQL nyata atau alur upload end-to-end. Satu endpoint yang belum selesai dari daftar bagian 10.1 adalah **`POST /api/patients/me/ktp`**.
+Endpoint read, tes router/service dengan cipher sungguhan, dan tes SQL DryRun tersedia. Tes memakai record KTP dan foto sintetis; mencakup kesamaan bytes PNG/JPEG, penolakan akses tidak sah, ciphertext rusak/tidak cocok, serta batas ukuran/dimensi. Tes juga mencakup POST multipart → GET data/foto dengan middleware dan kriptografi sungguhan, tetapi repository masih in-memory/DryRun, bukan PostgreSQL nyata. **Kelima endpoint bagian 10.1 sudah diimplementasikan**; ini bukan klaim seluruh aplikasi atau frontend selesai.
 
 Integritas kriptografis tidak membuktikan kebenaran data identitas atau ketahanan terhadap seluruh manipulasi administrator. DES/RC4 tetap untuk assignment, bukan rekomendasi sistem medis produksi. Detail schema ada di [PATIENT_KTP.md](PATIENT_KTP.md).
+
+### 10.7. Create data KTP dan upload foto — `POST /api/patients/me/ktp`
+
+**Prasyarat:** login sebagai pasien dan sudah mempunyai profil melalui POST `/api/patients/me/profile`. NIK diambil dari profil yang lolos pemeriksaan dekripsi; jangan mengirim `nik`, `user_id`, `patient_profile_id`, atau `role` di body. Query ID juga tidak memilih pemilik lain.
+
+Request memakai **multipart/form-data**, tepat dua part:
+
+| Part | Bentuk | Batas |
+| --- | --- | --- |
+| `data` | Field teks berisi satu JSON object, bukan file | 64 KiB |
+| `photo` | Satu file gambar PNG/JPEG | 8 MiB, maksimal 25 juta pixel |
+
+Total request dibatasi **8 MiB + 128 KiB**, termasuk framing/headers/epilogue multipart. Field/part tambahan, duplikat `data`/`photo`, data JSON sebagai file, atau photo tanpa filename ditolak. Filename dan MIME kiriman klien tidak dipakai sebagai bukti jenis gambar; nama file asli tidak disimpan.
+
+Isi JSON `data` (contoh sintetis):
+
+```json
+{
+  "full_name": "Pasien Sintetis",
+  "birth_place": "Kota Contoh",
+  "birth_date": "2005-01-01",
+  "gender": "Laki-laki",
+  "blood_type": "O",
+  "address": "Jalan Contoh 1",
+  "rt": "001",
+  "rw": "002",
+  "village": "Desa Contoh",
+  "district": "Kecamatan Contoh",
+  "religion": "Islam",
+  "marital_status": "Belum Kawin",
+  "occupation": "Pelajar",
+  "citizenship": "WNI"
+}
+```
+
+Semua 14 field wajib berupa string UTF-8 tidak kosong/whitespace saja, maksimal 16 KiB per field, dengan batas total JSON di atas. Nilai asli tidak di-trim/reformat saat disimpan.
+
+Validasi khusus:
+
+- `birth_date`: tanggal valid `YYYY-MM-DD`, bukan di masa depan; tidak otomatis dihitung dari umur profil.
+- `gender`: persis `Laki-laki` atau `Perempuan`.
+- `blood_type`: `A`, `B`, `AB`, `O`, atau `-` jika tidak diketahui.
+- `rt`/`rw`: 1–3 digit ASCII sebagai string, atau `-` bila tidak diketahui; nol di depan dipertahankan.
+- `marital_status`: `Belum Kawin`, `Kawin`, `Cerai Hidup`, atau `Cerai Mati`.
+- `citizenship`: `WNI` atau `WNA`.
+- `religion`, nama, tempat lahir, alamat, kelurahan/desa, kecamatan, dan pekerjaan berupa teks bebas dengan batas di atas.
+- Field JSON tambahan, tipe selain string, serta lebih dari satu JSON value ditolak.
+- Foto diperiksa berdasarkan bytes: header/dimensi dibatasi sebelum decode penuh PNG/JPEG untuk menolak gambar tidak lengkap/rusak. Bytes file asli disimpan tanpa re-encode. Tidak ada OCR atau pemeriksaan keaslian KTP/keanggotaan resmi.
+
+Contoh pengiriman browser (`ktpData` adalah object di atas, `photoFile` adalah File yang dipilih pasien):
+
+```js
+const form = new FormData();
+form.append("data", JSON.stringify(ktpData));
+form.append("photo", photoFile);
+
+const response = await fetch(`${API_BASE_URL}/patients/me/ktp`, {
+  method: "POST",
+  credentials: "include",
+  body: form
+});
+const result = await response.json();
+```
+
+**Jangan set Content-Type secara manual**; browser harus memasukkan boundary multipart. Periksa `response.ok`/status sebelum menampilkan sukses. Jangan mencetak data/foto pasien atau hasil fetch ke log.
+
+Respons sukses — **`201 Created`**:
+
+```json
+{
+  "message": "Patient KTP created",
+  "ktp": {
+    "id": 3,
+    "patient_profile_id": 12
+  },
+  "encryption": {
+    "active": ["aes", "des", "rc4"],
+    "pending": []
+  }
+}
+```
+
+Setiap field, termasuk NIK dari profil dan foto, dienkripsi sebagai tiga representasi AES/DES/RC4. Semua hasil didekripsi dan dibandingkan byte-per-byte sebelum satu INSERT dengan transaksi default GORM. Kegagalan validasi/enkripsi tidak membuat record sebagian. Foto disimpan pada kolom bytea PostgreSQL, bukan filesystem; parsing multipart memakai reader terbatas di memori tanpa temporary upload plaintext di disk. Tidak ada perubahan pada record profil.
+
+Unique `patient_profile_id` menolak pembuatan KTP kedua, termasuk request bersamaan. Endpoint tidak melakukan upsert/overwrite; update/delete belum disediakan. Respons tidak mengirim nama/NIK, ciphertext, foto, atau kunci; gunakan kedua GET untuk membaca milik pasien tersebut.
+
+| Status error POST KTP | Kondisi | Contoh message |
+| --- | --- | --- |
+| `400` | Multipart/JSON/field tidak valid, part hilang/duplikat/tambahan, atau gambar tidak valid | Pesan validasi tanpa nilai identitas pasien |
+| `401` | Cookie/token tidak valid atau user sudah dihapus | Pesan middleware atau `Unauthorized` |
+| `403` | Role terbaru bukan pasien | `Only patients can access their own KTP` |
+| `404` | Pasien belum mempunyai profil | `Patient profile not found` |
+| `409` | Profil sudah mempunyai KTP | `Patient KTP already exists` |
+| `413` | Foto, data JSON, atau total multipart melebihi batas | Pesan batas ukuran |
+| `415` | Content-Type bukan multipart/form-data | `Content-Type must be multipart/form-data` |
+| `500` | Pembacaan profil, kriptografi, atau penyimpanan gagal | `Unable to create patient KTP` |
+
+Semua error memakai JSON `{"message":"..."}`. Tes alur upload/read memakai data sintetis dan repository in-memory; pengujian PostgreSQL nyata tetap perlu dilakukan terpisah.
