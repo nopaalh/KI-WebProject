@@ -150,7 +150,7 @@ Sama seperti AES: key adalah master key, HMAC diverifikasi sebelum dekripsi, dan
 
 | Envelope usulan | Format | Turunan kunci usulan |
 | --- | --- | --- |
-| `DES1` | `"DES1" ‖ nonce 16 B ‖ DES-CTR ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption" ‖ nonce)[:8]`, mac = `HMAC(master, "DES1/authentication")`; counter 64 bit big-endian mulai dari 0 |
+| `DES1` | `"DES1" ‖ nonce 16 B ‖ DES-CTR ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption" ‖ nonce)[:8]`, mac = `HMAC(master, "DES1/authentication")`; counter 64 bit big-endian mulai dari 3377 (konstanta `desCTRStart`, tidak rahasia) |
 | `RC41` | `"RC41" ‖ nonce 16 B ‖ RC4-drop1536 ‖ HMAC-SHA256` | enc = `HMAC(master, "RC41/encryption" ‖ nonce)[:16]`, mac = `HMAC(master, "RC41/authentication")` |
 
 HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini harus disepakati sebelum producer/consumer diintegrasikan.
