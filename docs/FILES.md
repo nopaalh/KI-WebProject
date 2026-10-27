@@ -29,6 +29,8 @@ Upload menulis ciphertext sebelum insert metadata. Jika penulisan/penutupan file
 
 Startup memakai `AutoMigrate` pada model `File` yang sudah ada, menambahkan kolom `aes_encrypt_time_ns` dan `aes_decrypt_time_ns` (`int64`, non-null, default `0`). Record historis mendapat nilai default `0`, bukan hasil pengukuran baru. Migrasi tidak mengenkripsi ulang atau membuat ciphertext untuk record lama.
 
+Untuk menerapkan perubahan schema secara manual sebelum smoke test, tersedia [SQL migration up/down dan panduannya](../backend/migrations/README.md). Migration ini membutuhkan tabel `files` yang sudah ada; bukan baseline database kosong. `AutoMigrate` tetap aktif, dan aplikasi belum memakai migration runner/ledger otomatis. Jangan menjalankan migration pada database remote tanpa memastikan target dan persetujuannya.
+
 Record lama yang hanya berisi metadata tanpa file envelope AES1 yang valid **tidak dapat didekripsi**; upload ulang file asli. Metadata masih dapat dibaca oleh pemiliknya. Nilai `algorithm` pada response adalah label implementasi saat ini, bukan bukti bahwa ciphertext record historis tersedia/valid.
 
 ## 2. Autentikasi dan kepemilikan
