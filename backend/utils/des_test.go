@@ -14,6 +14,25 @@ func TestDESPermutation(t *testing.T) {
 	}
 }
 
+func TestDESSplit(t *testing.T) {
+	plain := make([]byte, 64)
+	for i := range plain {
+		plain[i] = byte(i)
+	}
+
+	l0, r0 := DESSplit(plain)
+
+	if len(l0) != 32 || len(r0) != 32 {
+		t.Fatalf("panjang l0=%d r0=%d, want 32 dan 32", len(l0), len(r0))
+	}
+	if l0[0] != plain[0] || l0[31] != plain[31] {
+		t.Fatal("l0 bukan 32 bit kiri dari plain")
+	}
+	if r0[0] != plain[32] || r0[31] != plain[63] {
+		t.Fatal("r0 bukan 32 bit kanan dari plain")
+	}
+}
+
 func TestDESPermutationInitialPermutation(t *testing.T) {
 	input := make([]byte, 64)
 	input[0] = 1 // hanya bit 1 yang menyala
