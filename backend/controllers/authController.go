@@ -7,6 +7,7 @@ import (
 	"project1/services"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type AuthController struct {
@@ -58,6 +59,32 @@ func (c *AuthController) Register(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusCreated, gin.H{
 		"message": "User registered successfully",
+	})
+}
+
+func (c *AuthController) Me(ctx *gin.Context) {
+	value, _ := ctx.Get("userID")
+	userID, ok := value.(uint)
+	if !ok || userID == 0 {
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+		return
+	}
+
+	user, err := c.AuthService.CurrentUser(userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "User no longer exists"})
+		return
+	}
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "Unable to load current user"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"id":       user.ID,
+		"name":     user.Name,
+		"username": user.Username,
+		"role":     user.Role,
 	})
 }
 
