@@ -14,7 +14,7 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Refresh token dan logout server-side | Belum tersedia |
 | Upload, metadata per ID, dan download hasil dekripsi file AES | Tersedia; file terenkripsi di disk dan timing di database |
 | Daftar seluruh file milik pengguna login | Tersedia; `GET /api/files`, tanpa pagination atau filter |
-| Create profil pasien | Tersedia; `POST /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; lihat [PATIENT_PROFILES.md](PATIENT_PROFILES.md) |
+| Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | RC4 / integrasi DES | DES dan RC4 tersedia untuk create profil; pipeline file masih AES |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
@@ -34,6 +34,9 @@ Semua endpoint yang tersedia:
 | --- | --- | --- | --- |
 | `POST` | `/api/users/register` | Tidak diperlukan | Membuat pengguna |
 | `POST` | `/api/users/login` | Tidak diperlukan | Mengatur cookie JWT `access_token` |
+| `GET` | `/api/users/me` | Cookie `access_token` | Identitas dan role terbaru user login; berbeda dari profil pasien |
+| `POST` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membuat profil pasien sendiri; kontrak di bagian 9 |
+| `GET` | `/api/patients/me/profile` | Cookie `access_token`, role `patient` | Membaca profil sendiri beserta NIK/BPJS terdekripsi; kontrak di bagian 9 |
 | `POST` | `/api/files` | Cookie `access_token` | Upload multipart, enkripc.PatientProfileCosi, dan simpan file serta timing |
 | `GET` | `/api/files` | Cookie `access_token` | Seluruh metadata file milik pengguna login, urutan ID DESC, tanpa pagination/filter |
 | `GET` | `/api/files/:id` | Cookie `access_token` | Metadata file milik pengguna |
@@ -392,3 +395,111 @@ Path relatif terhadap root project:
 - `backend/models/user.go` dan `backend/models/file.go` — model database, bukan kontrak response API.
 
 Jika backend berubah, perbarui dokumen ini berdasarkan router dan controller yang benar-benar terpasang.
+
+## 9. Profil pasien
+
+Kontrak berikut mengikuti endpoint yang sudah dipasang di `backend/routers/patientRouter.go`. Endpoint ini berbeda dari `GET /api/users/me`, yang hanya mengembalikan identitas akun dan role. Belum ada endpoint update/delete profil atau endpoint KTP.
+
+### Autentikasi dan ownership
+
+- Keduanya menggunakan cookie HttpOnly `access_token`, bukan Bearer token. Untuk fetch lintas origin gunakan `credentials: "include"`.
+- Backend mengambil user ID dari JWT tervalidasi lalu membaca role terbaru dari database. Hanya role `patient` yang diizinkan; dokter mendapat `403` pada endpoint profil pasien sendiri ini.
+- Tidak ada pemilihan pemilik melalui body atau URL. Query `user_id`/`patient_profile_id` pada GET tidak memilih profil lain; query database tetap dibatasi user yang login.
+- Controller mengirim `Cache-Control: no-store`. Jangan menyimpan NIK/BPJS atau respons profil di log, localStorage, maupun sessionStorage. Di luar development lokal gunakan HTTPS.
+- Semua nomor, nama, dan ID pada contoh berikut adalah data sintetis, bukan hasil pengukuran atau data pasien asli.
+
+### 9.1. Create profil — `POST /api/patients/me/profile`
+
+Kirim satu JSON object, maksimal **4 KiB**, dengan `Content-Type: application/json`:
+
+```json
+{
+  "weight_kg": 65.5,
+  "height_cm": 170,
+  "age": 21,
+  "nik": "0000000000000001",
+  "bpjs_number": "0000000000001"
+}
+```
+
+| Field | Tipe JSON | Validasi |
+| --- | --- | --- |
+| `weight_kg` | number | Positif, maksimal 9999.99, maksimal dua angka desimal; satuan kg |
+| `height_cm` | number | Positif, maksimal 9999.99, maksimal dua angka desimal; satuan cm |
+| `age` | integer | Wajib hadir, bukan null, 0–150; satuan tahun |
+| `nik` | string | Tepat 16 digit ASCII; jangan kirim sebagai number |
+| `bpjs_number` | string | Tepat 13 digit ASCII; jangan kirim sebagai number |
+
+Seluruh field wajib. Nol di depan nomor identitas dipertahankan. Field tambahan, termasuk `user_id`, `role`, kolom ciphertext, atau nested KTP ditolak. Batas berat/tinggi mengikuti kapasitas penyimpanan, bukan validasi klinis; validasi nomor hanya memeriksa format, bukan membuktikan identitas/keanggotaan resmi.
+
+Respons sukses — **`201 Created`**:
+
+```json
+{
+  "message": "Patient profile created",
+  "profile": {
+    "id": 12,
+    "user_id": 7,
+    "weight_kg": 65.5,
+    "height_cm": 170,
+    "age": 21
+  },
+  "encryption": {
+    "active": ["aes", "des", "rc4"],
+    "pending": []
+  }
+}
+```
+
+Respons create tidak mengirim NIK/BPJS, ciphertext, association KTP, password hash, atau kunci. NIK/BPJS record baru disimpan sebagai tiga representasi AES/DES/RC4; setiap hasil diverifikasi round-trip sebelum insert. Berat, tinggi, dan umur tetap plaintext sesuai keputusan saat ini. Nilai `active` **bukan klaim seluruh profil terenkripsi atau aplikasi aman untuk produksi**.
+
+| Status error POST | Kondisi |
+| --- | --- |
+| `400` | JSON/field/tipe/format input tidak valid, termasuk field tambahan atau lebih dari satu JSON object |
+| `401` | Cookie/token tidak valid, ID kosong, atau user sudah dihapus |
+| `403` | Role terbaru bukan pasien |
+| `409` | User sudah mempunyai profil; endpoint tidak overwrite/upsert |
+| `413` | Body melebihi 4 KiB |
+| `415` | Content-Type bukan application/json |
+| `500` | Gangguan database/kriptografi; pesan generik |
+
+Semua respons error memakai bentuk `{"message":"..."}`. Jangan membuat profil kedua untuk memperbarui data: endpoint update belum tersedia.
+
+### 9.2. Baca profil sendiri — `GET /api/patients/me/profile`
+
+Tidak perlu body, Content-Type, atau ID pasien. Kirim cookie login.
+
+Respons sukses — **`200 OK`**:
+
+```json
+{
+  "profile": {
+    "id": 12,
+    "user_id": 7,
+    "weight_kg": 65.5,
+    "height_cm": 170,
+    "age": 21,
+    "nik": "0000000000000001",
+    "bpjs_number": "0000000000001"
+  }
+}
+```
+
+NIK/BPJS dikembalikan sebagai string setelah dekripsi. DTO tidak menyertakan ciphertext, association KTP, role internal, password hash, atau kunci. Umur adalah nilai tersimpan, tidak otomatis bertambah.
+
+Sebelum respons dikirim, AES dan DES wajib lolos autentikasi/dekripsi dan menghasilkan nilai identik; RC4 yang tersimpan juga wajib menghasilkan nilai sama. Format NIK/BPJS hasil dekripsi diperiksa kembali. Jika salah satu gagal atau berbeda, tidak ada profil atau data sebagian yang dikirim.
+
+Kompatibilitas record lama: hanya bila **kedua** kolom RC4 NULL, GET membaca dan mencocokkan AES/DES tanpa mengklaim record sudah dilindungi RC4. Satu kolom RC4 NULL saja atau bytes RC4 kosong/rusak ditolak. NULL merupakan jalur kompatibilitas, bukan bukti terautentikasi bahwa record benar-benar lama. GET tidak melakukan backfill atau perubahan database.
+
+| Status error GET | Kondisi | Contoh message |
+| --- | --- | --- |
+| `401` | Cookie/token tidak valid atau user sudah tidak ada | Pesan middleware autentikasi atau `Unauthorized` |
+| `403` | Role terbaru bukan pasien | `only patients can access their own profile` |
+| `404` | Pasien belum mempunyai profil | `Patient profile not found` |
+| `500` | Query/dekripsi gagal atau representasi tidak konsisten | `Unable to read patient profile` |
+
+Error tetap berbentuk `{"message":"..."}`, tanpa data sebagian. Pada `404`, frontend dapat menawarkan form create profil; jangan menganggapnya kegagalan login.
+
+Pemeriksaan cipher tidak mengautentikasi berat/tinggi/umur yang masih plaintext, tidak memverifikasi identitas resmi, dan tidak membuktikan kebal manipulasi administrator. DES/RC4 serta implementasi edukasi bukan rekomendasi keamanan medis produksi.
+
+Detail schema, key, kompatibilitas data lama, dan pengujian ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Kontrak request/response profil dipusatkan di bagian ini.

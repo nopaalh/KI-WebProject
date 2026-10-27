@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"project1/models"
@@ -34,6 +35,39 @@ func newDryRunPatientProfileRepository(t *testing.T) *PatientProfileRepository {
 	}
 	t.Cleanup(func() { sqlDB.Close() })
 	return NewPatientProfileRepository(db)
+}
+
+func TestPatientProfileFindByUserIDScopesQuery(t *testing.T) {
+	repo := newDryRunPatientProfileRepository(t)
+	var query string
+	var args []any
+	if err := repo.DB.Callback().Query().After("gorm:query").Register("capture_profile_query", func(db *gorm.DB) {
+		query = db.Statement.SQL.String()
+		args = append([]any(nil), db.Statement.Vars...)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FindByUserID(7); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, `FROM "patient_profiles" WHERE user_id = $1`) || len(args) == 0 || args[0] != uint(7) {
+		t.Fatalf("profile read must bind authenticated owner ID: %s, %v", query, args)
+	}
+}
+
+func TestPatientProfileFindByUserIDPropagatesErrors(t *testing.T) {
+	for _, expected := range []error{gorm.ErrRecordNotFound, errors.New("database unavailable")} {
+		repo := newDryRunPatientProfileRepository(t)
+		if err := repo.DB.Callback().Query().Before("gorm:query").Register("fail_profile_query", func(db *gorm.DB) {
+			db.AddError(expected)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		profile, err := repo.FindByUserID(7)
+		if profile != nil || !errors.Is(err, expected) {
+			t.Fatalf("expected query error without data: %v, %v", profile, err)
+		}
+	}
 }
 
 func TestPatientProfileCreateBindsEncryptedFieldsAndUserID(t *testing.T) {
