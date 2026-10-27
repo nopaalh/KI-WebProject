@@ -42,6 +42,20 @@ func (c *PatientKTPController) Get(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"ktp": ktp})
 }
 
+func (c *PatientKTPController) GetPhoto(ctx *gin.Context) {
+	userID, ok := ktpUserID(ctx)
+	if !ok {
+		return
+	}
+	photo, err := c.service.GetPhoto(userID)
+	if err != nil {
+		ktpError(ctx, err)
+		return
+	}
+	ctx.Header("Content-Disposition", `inline; filename="`+photo.Filename+`"`)
+	ctx.Data(http.StatusOK, photo.ContentType, photo.Bytes)
+}
+
 func ktpError(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrProfileUnauthorized):
