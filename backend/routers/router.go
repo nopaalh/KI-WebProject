@@ -40,6 +40,7 @@ func SetupRouter(c Controller) *gin.Engine {
 			"Content-Length",
 			"Content-Disposition",
 			"X-Decryption-Time-Ns",
+			"X-Decryption-Algorithm",
 		},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,

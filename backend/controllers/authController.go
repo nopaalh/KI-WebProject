@@ -62,6 +62,14 @@ func (c *AuthController) Register(ctx *gin.Context) {
 	})
 }
 
+func (c *AuthController) Logout(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "no-store")
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	// Match the login cookie scope so the browser removes the existing token.
+	ctx.SetCookie("access_token", "", -1, "/", "", false, true)
+	ctx.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
+}
+
 func (c *AuthController) Me(ctx *gin.Context) {
 	value, _ := ctx.Get("userID")
 	userID, ok := value.(uint)

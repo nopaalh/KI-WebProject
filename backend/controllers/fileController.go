@@ -104,27 +104,50 @@ func (c *FileController) Decrypt(ctx *gin.Context) {
 		return
 	}
 	ctx.Header("Cache-Control", "no-store")
-	file, plaintext, err := c.FileService.Decrypt(userID, fileID)
+	algorithm := ctx.DefaultQuery("algorithm", "aes")
+	if algorithm == "" {
+		algorithm = "aes"
+	}
+	file, plaintext, err := c.FileService.Decrypt(userID, fileID, algorithm)
 	if err != nil {
 		fileError(ctx, err)
 		return
 	}
 
 	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.OriginalName}))
-	ctx.Header("X-Decryption-Time-Ns", strconv.FormatInt(file.AESDecryptTimeNS, 10))
+	duration := file.AESDecryptTimeNS
+	if algorithm == "des" {
+		duration = file.DESDecryptTimeNS
+	} else if algorithm == "rc4" {
+		duration = file.RC4DecryptTimeNS
+	}
+	ctx.Header("X-Decryption-Time-Ns", strconv.FormatInt(duration, 10))
+	ctx.Header("X-Decryption-Algorithm", algorithm)
 	ctx.Header("X-Content-Type-Options", "nosniff")
 	ctx.Data(http.StatusOK, "application/octet-stream", plaintext)
 }
 
 func fileResponse(file *models.File) gin.H {
+	algorithms := []string{}
+	for _, cipher := range []struct{ name, path string }{{"aes", file.AESPath}, {"des", file.DESPath}, {"rc4", file.RC4Path}} {
+		if cipher.path != "" {
+			algorithms = append(algorithms, cipher.name)
+		}
+	}
 	return gin.H{
 		"id":                  file.ID,
 		"original_name":       file.OriginalName,
 		"original_size":       file.OriginalSize,
 		"original_type":       file.OriginalType,
 		"algorithm":           services.AESFileAlgorithm,
+		"algorithms":          algorithms,
+		"cipher_set_version":  file.CipherSetVersion,
 		"aes_encrypt_time_ns": file.AESEncryptTimeNS,
 		"aes_decrypt_time_ns": file.AESDecryptTimeNS,
+		"des_encrypt_time_ns": file.DESEncryptTimeNS,
+		"des_decrypt_time_ns": file.DESDecryptTimeNS,
+		"rc4_encrypt_time_ns": file.RC4EncryptTimeNS,
+		"rc4_decrypt_time_ns": file.RC4DecryptTimeNS,
 	}
 }
 
@@ -151,6 +174,10 @@ func fileError(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrInvalidUser):
 		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+	case errors.Is(err, services.ErrInvalidFileAlgorithm):
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+	case errors.Is(err, services.ErrFileCipherUnavailable):
+		ctx.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 	case errors.Is(err, services.ErrFileRequired):
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 	case errors.Is(err, services.ErrFileTooLarge):

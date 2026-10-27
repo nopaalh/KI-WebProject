@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,7 +69,7 @@ func (r *memoryFileRepository) FindByIDAndUserID(fileID, userID uint) (*models.F
 	return &file, nil
 }
 
-func (r *memoryFileRepository) UpdateAESDecryptTime(fileID, userID uint, durationNS int64) error {
+func (r *memoryFileRepository) UpdateDecryptTime(fileID, userID uint, algorithm string, durationNS int64) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}
@@ -76,7 +77,16 @@ func (r *memoryFileRepository) UpdateAESDecryptTime(fileID, userID uint, duratio
 	if !ok || file.UserID != userID {
 		return gorm.ErrRecordNotFound
 	}
-	file.AESDecryptTimeNS = durationNS
+	switch algorithm {
+	case "aes":
+		file.AESDecryptTimeNS = durationNS
+	case "des":
+		file.DESDecryptTimeNS = durationNS
+	case "rc4":
+		file.RC4DecryptTimeNS = durationNS
+	default:
+		return services.ErrInvalidFileAlgorithm
+	}
 	r.files[fileID] = file
 	return nil
 }
@@ -158,13 +168,19 @@ func fileRouteMultipart(t *testing.T, filename string, data []byte, padding int)
 }
 
 type fileRouteMetadata struct {
-	ID               uint   `json:"id"`
-	OriginalName     string `json:"original_name"`
-	OriginalSize     int64  `json:"original_size"`
-	OriginalType     string `json:"original_type"`
-	Algorithm        string `json:"algorithm"`
-	AESEncryptTimeNS int64  `json:"aes_encrypt_time_ns"`
-	AESDecryptTimeNS int64  `json:"aes_decrypt_time_ns"`
+	ID               uint     `json:"id"`
+	OriginalName     string   `json:"original_name"`
+	OriginalSize     int64    `json:"original_size"`
+	OriginalType     string   `json:"original_type"`
+	Algorithm        string   `json:"algorithm"`
+	Algorithms       []string `json:"algorithms"`
+	CipherSetVersion int      `json:"cipher_set_version"`
+	DESEncryptTimeNS int64    `json:"des_encrypt_time_ns"`
+	DESDecryptTimeNS int64    `json:"des_decrypt_time_ns"`
+	RC4EncryptTimeNS int64    `json:"rc4_encrypt_time_ns"`
+	RC4DecryptTimeNS int64    `json:"rc4_decrypt_time_ns"`
+	AESEncryptTimeNS int64    `json:"aes_encrypt_time_ns"`
+	AESDecryptTimeNS int64    `json:"aes_decrypt_time_ns"`
 }
 
 type fileRouteResponse struct {
@@ -283,7 +299,7 @@ func TestFileRoutesUploadMetadataAndDecrypt(t *testing.T) {
 
 	path := fmt.Sprintf("/api/files/%d", metadata.ID)
 	response := fileRouteRequest(fixture.router, http.MethodGet, path, fixture.token, "", nil)
-	if got := decodeFileRouteResponse(t, response, http.StatusOK); got.File != metadata || got.Message != "" {
+	if got := decodeFileRouteResponse(t, response, http.StatusOK); !reflect.DeepEqual(got.File, metadata) || got.Message != "" {
 		t.Fatalf("GET metadata = %+v, want %+v", got, metadata)
 	}
 	if response.Header().Get("Cache-Control") != "no-store" {
@@ -439,7 +455,7 @@ func TestFileRoutesListOwnedFiles(t *testing.T) {
 	for _, path := range []string{"/api/files", "/api/files?user_id=8"} {
 		response := fileRouteRequest(fixture.router, http.MethodGet, path, fixture.token, "", nil)
 		files := decodeFileRouteList(t, response)
-		if len(files) != 2 || files[0] != newer || files[1] != older {
+		if len(files) != 2 || !reflect.DeepEqual(files[0], newer) || !reflect.DeepEqual(files[1], older) {
 			t.Fatalf("unexpected owner/order/metadata for %s: %+v", path, files)
 		}
 	}
@@ -499,7 +515,7 @@ func TestSetupRouterFileRoutesCORS(t *testing.T) {
 	listResponse := httptest.NewRecorder()
 	fixture.router.ServeHTTP(listResponse, listRequest)
 	files := decodeFileRouteList(t, listResponse)
-	if len(files) != 1 || files[0] != metadata {
+	if len(files) != 1 || !reflect.DeepEqual(files[0], metadata) {
 		t.Fatalf("wired list returned unexpected files: %+v", files)
 	}
 	assertFileRouteCORS(t, listResponse.Header())
@@ -530,7 +546,7 @@ func TestSetupRouterFileRoutesCORS(t *testing.T) {
 		t.Fatalf("wired decrypt status = %d, exact plaintext match = %t", response.Code, bytes.Equal(response.Body.Bytes(), plaintext))
 	}
 	assertFileRouteCORS(t, response.Header())
-	for _, header := range []string{"Content-Disposition", "X-Decryption-Time-Ns"} {
+	for _, header := range []string{"Content-Disposition", "X-Decryption-Time-Ns", "X-Decryption-Algorithm"} {
 		if !fileRouteHeaderContains(response.Header(), "Access-Control-Expose-Headers", header) || response.Header().Get(header) == "" {
 			t.Errorf("download header %s must be present and exposed; headers: %v", header, response.Header())
 		}

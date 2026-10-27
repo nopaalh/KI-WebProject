@@ -19,9 +19,9 @@ Arsitektur yang disepakati:
 
 ## 2. Status aktual vs rencana
 
-Baseline checkout yang diperiksa adalah `b00671d`. Commit ini hanya referensi pemeriksaan, bukan jaminan selalu merupakan versi remote terbaru. Periksa kode dan Git sebelum mulai bekerja.
+Status diperbarui terhadap `main` pada `57d06b2` (2026-10-27) berdasarkan kode di repo, bukan rencana. Periksa kode dan Git sebelum mulai bekerja karena dokumen bisa tertinggal.
 
-| Bagian | Status saat handoff ini ditulis |
+| Bagian | Status |
 | --- | --- |
 | Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada dalam baseline |
 | Model `User` dan `File` | Sudah ada dalam baseline |
@@ -29,19 +29,33 @@ Baseline checkout yang diperiksa adalah `b00671d`. Commit ini hanya referensi pe
 | AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
 | Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
 | Batas upload | Saat ini 8 MiB; bukan 25 MiB |
-| DES dan RC4 dalam pipeline penyimpanan | Belum tersedia pada baseline; kolom path di model bukan bukti cipher sudah berjalan |
+| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download memeriksa seluruh set, selector algorithm memilih timing yang dilaporkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
 | Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
 | Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
 | Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |
 | Perlindungan seluruh data sensitif dengan tiga cipher | Belum terpenuhi; nama user dan metadata file masih berupa field biasa |
 
 Perubahan lokal role menyediakan fondasi identitas saja, **belum RBAC rumah sakit lengkap**. Endpoint file tetap owner-only. Kolom role didefinisikan langsung pada model `User` untuk dibuat/ditambahkan lewat `AutoMigrate` yang sudah ada; tidak memakai file SQL role terpisah. AutoMigrate belum dijalankan ke database dalam sesi ini. Detail perubahan lokal ada di [ROLES.md](ROLES.md).
+| Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada |
+| Role `patient`/`doctor` (kolom `role` pada `User`) dan `GET /api/users/me` | Sudah di `main` (PR #3 dan #4); belum ada endpoint yang melayani petugas |
+| Upload, daftar/metadata, dekripsi file umum (dokumen, video) | Ada, **hanya AES** (`AES1`), batas 8 MiB; belum DES/RC4; nama file masih plaintext |
+| Library DES (mode CTR), RC4, CTR generik, envelope `DES1` dan `RC41` | Selesai di `backend/utils/`; diuji terhadap vektor resmi dan stdlib (`crypto/des`, `crypto/rc4`, `cipher.NewCTR`); CI hijau |
+| Benchmark mikro tiga cipher | Selesai; hasil dan temuan di [benchmark.txt](benchmark.txt) |
+| Profil pasien (`POST/GET /api/patients/me/profile`) | Ada; NIK dan nomor BPJS dienkripsi ×3, kolom lain plaintext (lihat bagian 6) |
+| KTP pasien (`POST/GET /api/patients/me/ktp`, `GET /api/patients/me/ktp/photo`) | Ada; seluruh field dan foto dienkripsi ×3, dibaca dengan pencocokan hasil dekripsi ketiga cipher |
+| Rekam medis, draf/final, version history | Belum ada model maupun endpoint |
+| Frontend (Svelte) | Login, registrasi, sesi dan role; fitur lain belum diverifikasi dalam pembaruan ini |
+| CI | `go test -race ./...` dan cek frontend pada PR ([CI.md](CI.md)) |
+| Pengukuran makro dan analisis ciphertext | Belum; pembacaan profil/KTP mendekripsi ketiga cipher sekaligus dan belum ada pilihan `?algorithm=` |
+| Perlindungan seluruh data sensitif dengan tiga cipher | **Belum terpenuhi:** file umum masih AES, `User.Name` dan nama file masih plaintext, serta pengecualian profil di bagian 6 |
+
+Role baru menyediakan fondasi identitas, **belum RBAC rumah sakit lengkap**: semua endpoint pasien dan file masih berbasis pemilik. Kolom role dibuat lewat `AutoMigrate` pada model `User` dan juga tersedia sebagai migration SQL. Empat migration (`000001` timing AES, `000002` role, `000003` profil pasien, `000004` KTP) ada di `backend/migrations/`; urutan terapkan dan rollback ada di README folder itu.
 
 Preview HTML dari ZIP, bila dipakai, adalah **demo dengan data contoh**, bukan frontend final. Login/upload/enkripsi/download dalam preview itu tidak boleh dianggap operasi backend sungguhan. Jangan menimpa repo utama dengan ZIP tanpa membandingkan kode.
 
 ## 3. Role dan hak akses yang disepakati
 
-Dua role aplikasi: **pasien** dan **petugas rumah sakit**, termasuk dokter sebagai pengguna berwenang. Penamaan teknis `patient` dan `doctor` sedang dipakai dalam perubahan lokal; `doctor` mewakili petugas berwenang untuk scope ini, bukan rancangan hierarki profesi rumah sakit.
+Dua role aplikasi: **pasien** dan **petugas rumah sakit**, termasuk dokter sebagai pengguna berwenang. Penamaan teknis `patient` dan `doctor` sudah dipakai di `main`; `doctor` mewakili petugas berwenang untuk scope ini, bukan rancangan hierarki profesi rumah sakit.
 
 | Operasi | Pasien | Petugas/dokter |
 | --- | --- | --- |
@@ -126,20 +140,20 @@ Persyaratan kriptografi:
 - Uji dekripsi mengembalikan bytes yang **identik** dengan input, bukan hanya file dapat dibuka.
 - DES dan RC4 hanya untuk assignment/perbandingan akademik, bukan keamanan medis produksi. Menyimpan tiga representasi juga membuka jalur serangan melalui cipher terlemah.
 
-## 7. Usulan teknis dari handoff lama — perlu konfirmasi
+## 7. Cipher dan envelope — sudah diimplementasikan
 
-Bagian ini dipertahankan agar pekerjaan antar-BE tidak kehilangan konteks. **Ini usulan kontrak, bukan keputusan final seluruh tim dan bukan bukti implementasi tersedia.** Assignment membolehkan library; implementasi manual bukan kewajiban assignment berdasarkan konteks yang tersedia.
+Bagian ini mencatat keputusan kriptografi yang sudah dikerjakan di `backend/utils/` (`des.go`, `rc4.go`, `modes.go`, `des_file.go`, `rc4_file.go`) dan dipakai oleh endpoint profil serta KTP pasien. Cipher dibuat tangan untuk tujuan edukasi; assignment membolehkan library, tetapi implementasi manual diverifikasi terhadap `crypto/aes`, `crypto/des`, `crypto/rc4` dan test vector resmi.
 
 ### Cipher dan penyimpanan
 
-- AES saat ini: AES-128-CBC + PKCS7 + HMAC-SHA256, envelope `AES1`.
-- Usulan DES: **single DES**, mode CTR + HMAC-SHA256, tanpa padding, kunci turunan berbeda per file; bukan 3DES. CTR dipilih agar DES bekerja sebagai pembangkit keystream yang di-XOR dengan data seperti RC4, sehingga DES dan RC4 sebanding sebagai cipher aliran dan ukuran ciphertext sama dengan plaintext.
-- Usulan RC4: nonce acak per payload, kunci turunan berbeda per nonce, buang 1536 byte awal keystream, lalu HMAC-SHA256. Ini tidak menjadikan RC4 layak untuk produksi.
-- Usulan master key: gunakan `FILE_ENCRYPTION_KEY` 32 byte dengan derivasi berlabel per cipher dan per fungsi enkripsi/MAC, mengikuti pola AES yang ada.
+- AES: AES-128-CBC + PKCS7 + HMAC-SHA256, envelope `AES1`.
+- DES: **single DES**, mode CTR + HMAC-SHA256, tanpa padding, kunci turunan berbeda per file; bukan 3DES. CTR dipilih agar DES bekerja sebagai pembangkit keystream yang di-XOR dengan data seperti RC4, sehingga DES dan RC4 sebanding sebagai cipher aliran dan ukuran ciphertext sama dengan plaintext.
+- RC4: nonce acak per payload, kunci turunan berbeda per nonce, buang 1536 byte awal keystream (RFC 4345), lalu HMAC-SHA256. Ini tidak menjadikan RC4 layak untuk produksi.
+- Master key: `FILE_ENCRYPTION_KEY` 32 byte dengan derivasi berlabel per cipher dan per fungsi enkripsi/MAC, mengikuti pola AES.
 - Usulan data terstruktur: satu payload JSON sensitif per record/versi, dienkripsi tiga kali. Konsekuensinya field di dalam payload tidak dapat di-query langsung.
 - Pipeline saat ini in-memory. Batas video perlu diuji berdasarkan memori dan waktu proses; angka 25 MiB dari handoff lama **hanya usulan**, bukan batas aktif.
 
-### Usulan kontrak utilitas
+### Kontrak utilitas
 
 ```go
 func EncryptDESFile(plaintext []byte, key [32]byte) ([]byte, error)
@@ -150,27 +164,31 @@ func DecryptRC4File(encrypted []byte, key [32]byte) ([]byte, error)
 
 Sama seperti AES: key adalah master key, HMAC diverifikasi sebelum dekripsi, dan error tidak mengembalikan plaintext parsial.
 
-| Envelope usulan | Format | Turunan kunci usulan |
+| Envelope | Format | Turunan kunci |
 | --- | --- | --- |
 | `DES1` | `"DES1" ‖ nonce 16 B ‖ DES-CTR ‖ HMAC-SHA256` | enc = `HMAC(master, "DES1/encryption" ‖ nonce)[:8]`, mac = `HMAC(master, "DES1/authentication")`; counter 64 bit big-endian mulai dari 3377 (konstanta `desCTRStart`, tidak rahasia) |
 | `RC41` | `"RC41" ‖ nonce 16 B ‖ RC4-drop1536 ‖ HMAC-SHA256` | enc = `HMAC(master, "RC41/encryption" ‖ nonce)[:16]`, mac = `HMAC(master, "RC41/authentication")` |
 
-HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini harus disepakati sebelum producer/consumer diintegrasikan.
+HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini sudah dipakai oleh endpoint profil dan KTP; mengubahnya membuat data yang sudah tersimpan tidak terbaca.
 
-Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR sekarang menjadi mode DES (bukan lagi eksperimen tambahan). Karena AES tetap CBC, selisih AES dan DES pada benchmark mencampur efek cipher dan efek mode, jadi benchmark mikro juga mengukur AES dan DES pada CBC dan CTR yang sama agar kedua efek itu terpisah. Kunci DES unik per file, sehingga nonce tidak perlu berbagi blok dengan counter dan keystream tidak pernah dipakai ulang antar file.
+Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API dan belum ada. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR sekarang menjadi mode DES (bukan lagi eksperimen tambahan). Karena AES tetap CBC, selisih AES dan DES pada benchmark mencampur efek cipher dan efek mode, jadi benchmark mikro juga mengukur AES dan DES pada CBC dan CTR yang sama agar kedua efek itu terpisah. Kunci DES unik per file, sehingga nonce tidak perlu berbagi blok dengan counter dan keystream tidak pernah dipakai ulang antar file.
 
 ## 8. Usulan pembagian dan urutan kerja
 
-Pembagian ini memakai PIC handoff lama, **perlu dikonfirmasi ulang** karena scope aplikasi berubah. Tidak menetapkan deadline atau menganggap perubahan sudah dikerjakan.
+PIC memakai pembagian handoff lama dan **perlu dikonfirmasi ulang** karena scope aplikasi berubah; baris tanpa PIC tetap usulan. Kolom Status diperbarui terhadap `main` pada `57d06b2`. Tidak menetapkan deadline.
 
-| Bagian | Usulan PIC | Cakupan |
-| --- | --- | --- |
-| DES/RC4 dan envelope autentikasinya | Kamal (BE-2) | Core/library sesuai keputusan tim, mode DES, derivasi kunci, format envelope, test vector dan tampering test |
-| Evaluasi cipher | Kamal (BE-2), koordinasi dengan BE-1 | Benchmark mikro, pengukuran download berulang, round-trip, overhead, interpretasi |
-| Role dan akses pasien/dokter | nopaalh (BE-1) | Provisioning dokter, backend role checks, patient ownership; review perubahan role lokal lebih dahulu |
-| Data pasien dan rekam medis | nopaalh (BE-1) | Relasi pasien, payload sensitif, draf/final, versi, penulis, timestamp, API history |
-| Integrasi tiga cipher | nopaalh (BE-1), memakai kontrak BE-2 | Penyimpanan file dan payload sensitif ×3, metadata privat, respons API, penanganan kegagalan |
-| Kontrak frontend/backend | Tim frontend bersama BE-1 | Request/response, status dan error, polling/versi, download, loading/success/error state |
+| Bagian | PIC | Status | Cakupan |
+| --- | --- | --- | --- |
+| DES/RC4 dan envelope autentikasinya | Kamal (BE-2) | **Selesai** | Core, mode DES, derivasi kunci, format envelope, test vector, tampering test |
+| Evaluasi cipher | Kamal (BE-2), koordinasi dengan BE-1 | Sebagian | Benchmark mikro **selesai**; analisis ciphertext (overhead, entropi), pengukuran makro (download berulang), dan interpretasi untuk laporan **belum**. Makro menunggu pembacaan per cipher |
+| Role dan akses pasien/dokter | nopaalh (BE-1) | Sebagian | Role dan `GET /api/users/me` ada; provisioning dokter dan endpoint petugas belum |
+| Data pasien dan rekam medis | nopaalh (BE-1) | Sebagian | Profil dan KTP (buat dan baca) ada; relasi rekam medis, draf/final, versi, penulis, history belum |
+| Integrasi tiga cipher | nopaalh (BE-1), memakai kontrak BE-2 | Sebagian | Profil dan KTP sudah ×3; file umum (dokumen, video) masih AES, metadata privat belum |
+| Kontrak frontend/backend | Tim frontend bersama BE-1 | Sebagian | Login, registrasi, sesi ada; form data pasien, upload dan unduh dokumen belum diverifikasi |
+| Dokumentasi format `DES1` dan `RC41` di `docs/` | Kamal (usulan, belum disepakati) | Belum | `FILES.md` masih menyebut belum ada RC4/DES |
+| Klasifikasi data pribadi UU PDP/GDPR untuk laporan | Tim (belum ada PIC) | Belum | Tabel data umum vs spesifik dan rujukan pasal |
+| Target waktu upload dan batas ukuran video | Tim (belum ada PIC) | Belum | Dasar angka ada di [benchmark.txt](benchmark.txt) |
+| Laporan 2 halaman, tautan dan screenshot percakapan AI | Semua anggota | Belum | Setiap anggota yang memakai AI menyertakan tautan dan screenshot sendiri |
 
 Urutan yang disarankan:
 
@@ -202,7 +220,9 @@ Usulan pelaksanaan dari handoff lama:
 - Makro: download/dekripsi berulang, misalnya 30 kali per file per cipher; bedakan latensi endpoint dan durasi kriptografi backend.
 - Ciphertext: bandingkan overhead dan variasi hasil untuk plaintext sama. Statistik byte/entropi saja bukan bukti keamanan.
 
-Handoff lama menyebut instruksi slide “download the data multiple times” dan analisis ciphertext. Periksa materi assignment asli sebelum mengutipnya sebagai ketentuan tambahan; slide tersebut belum diverifikasi dalam revisi ini.
+Instruksi di slide kuliah (`04 - AES Decryption.pptx`, slide 18-19) sudah diverifikasi dan memuat ketentuan tambahan: *"Analyse the difference (i.e., running time, the resulting cipher text) between each cipher"*, *"Download the data multiple times and measure the running time!"*, *"Write a short report of the analysis result"*, dan *"The program must be bug-free to get a full mark"*. Karena itu analisis ciphertext dan pengukuran unduhan berulang termasuk kewajiban evaluasi, bukan hanya usulan.
+
+Hasil benchmark mikro (median 10 pengulangan, satu mesin) ada di [benchmark.txt](benchmark.txt). Temuan yang memengaruhi desain: kecepatan antar-cipher bergantung implementasi (RC4 buatan tangan sekitar 150× lebih cepat dari AES dan 200× dari DES, sedangkan di stdlib urutannya berubah); dekripsi AES 2,4× lebih lambat dari enkripsinya; DES-CTR dan RC4 simetris; dan waktu upload tiga cipher sekitar 1,0 sampai 2,7 detik per MiB tergantung berapa cipher yang diverifikasi round-trip.
 
 Uji fungsional/keamanan yang perlu tersedia:
 
@@ -220,9 +240,10 @@ Uji fungsional/keamanan yang perlu tersedia:
 - Bentuk tabel/payload dan endpoint pasien, rekam medis, versi, history, serta lampiran.
 - Nama status, penandaan final, dan penanganan update bersamaan.
 - Metadata minimum untuk query dan perlindungan identitas pada alur autentikasi.
-- Mode/format DES dan RC4, implementasi manual vs library, serta pengelolaan kunci final.
-- Penanganan data lama yang baru dilindungi AES; jangan menghapus data tanpa persetujuan.
-- Batas upload yang layak untuk video setelah pengujian.
+- Pengelolaan master key final (penyimpanan, rotasi). Mode, format envelope, dan implementasi manual DES/RC4 sudah diputuskan (bagian 7).
+- Penanganan data lama yang baru dilindungi AES, termasuk kolom RC4 profil yang nullable; jangan menghapus data tanpa persetujuan.
+- Batas upload video: tim perlu menetapkan **target waktu upload** dan apakah ketiga cipher diverifikasi round-trip saat upload. Estimasi 10 detik adalah sekitar 3,7 MiB (verifikasi ketiganya) sampai 9,6 MiB (tanpa verifikasi); angka lengkap di [benchmark.txt](benchmark.txt). Batas 8 MiB saat ini berarti sekitar 22 detik jika ketiganya diverifikasi.
+- Apakah pembacaan perlu mendekripsi ketiga cipher sekaligus. Saat ini ya (pencocokan integritas), sehingga satu foto KTP menanggung sekitar 1,7 detik per MiB.
 - Izin edit/delete dokumen unggahan pasien, hanya jika memang diperlukan.
 
 Search/filter, statistik dashboard, preview media, delete, dan halaman benchmark khusus bukan kewajiban eksplisit. Jangan menambahkannya sebelum kebutuhan inti terpenuhi atau ada permintaan.
@@ -238,3 +259,31 @@ Search/filter, statistik dashboard, preview media, delete, dan halaman benchmark
 - Jika diminta push, gunakan repo bersama `https://github.com/nopaalh/KI-WebProject`, bukan fork pribadi; branch bersama `main`.
 - Perubahan kontrak API wajib memperbarui `docs/API.md`/`docs/FILES.md` dan memberi tahu tim frontend.
 - Cipher buatan tangan harus diverifikasi dengan test vector tepercaya dan pembanding library yang sesuai; seluruh jalur perlu diuji round-trip dan penolakan manipulasi.
+
+## 12. Permintaan Kamal (BE-2) untuk nopaalh (BE-1)
+
+Dibuat 2026-10-27 setelah `main` di `57d06b2`. Tujuannya satu: evaluasi tiga cipher yang diminta soal (waktu dan ciphertext, unduh berulang) baru bisa lengkap kalau file umum juga disimpan dan dibaca per cipher. Semua poin di bawah mengikuti keputusan yang sudah ada; tidak ada perubahan format envelope.
+
+### Apa yang sudah dan belum bisa diukur
+
+| Pengukuran | Bisa sekarang? | Catatan |
+| --- | --- | --- |
+| Benchmark mikro cipher (laju, alokasi, CBC vs CTR) | Sudah selesai | [benchmark.txt](benchmark.txt) |
+| Analisis ciphertext (overhead, entropi, plaintext sama menghasilkan ciphertext berbeda, tampering) | **Ya**, di level `utils` dengan file nyata | Dikerjakan Kamal; tidak butuh API |
+| Unduh berulang (30 kali per cipher) di level kriptografi | **Ya**, di level `utils` | Dikerjakan Kamal; mengukur durasi dekripsi, bukan latensi HTTP |
+| Unduh berulang di level endpoint **per cipher** | **Belum** | Terblokir permintaan 1 dan 2 |
+| Waktu enkripsi/dekripsi DES dan RC4 per file di database | **Belum** | Terblokir permintaan 3 |
+
+### Permintaan, berurutan
+
+1. **Upload file umum menyimpan tiga envelope.** `FileService.Upload` saat ini hanya memanggil `EncryptAESFile` (batas 8 MiB). Tambahkan `EncryptDESFile` dan `EncryptRC4File` pada plaintext yang sama, tulis ke disk seperti AES, isi `DESPath` dan `RC4Path` (kolom sudah ada di model `File`), dan jaga kegagalan salah satu cipher membatalkan seluruh upload tanpa meninggalkan file yatim.
+2. **Pilihan cipher saat dekripsi.** Usulan: `POST /api/files/:id/decrypt?algorithm=aes|des|rc4`, default `aes` agar klien lama tidak berubah. Hanya envelope yang dipilih yang dibaca dan didekripsi; field `algorithm` pada response mengikuti pilihan (sekarang label tetap `AES-128-CBC-HMAC-SHA256`). Nilai selain tiga itu ditolak `400`. Akses tetap owner-only. Ini yang membuat unduh berulang per cipher bisa diukur di endpoint.
+3. **Kolom timing DES dan RC4.** Kamal menulis migration `000005` untuk `des_encrypt_time_ns`, `des_decrypt_time_ns`, `rc4_encrypt_time_ns`, `rc4_decrypt_time_ns` (semua `BIGINT NOT NULL DEFAULT 0`, pola sama dengan `000001`). `models/file.go` milik BE-1, jadi mohon konfirmasi nama field GORM (usulan: `DESEncryptTimeNS`, `DESDecryptTimeNS`, `RC4EncryptTimeNS`, `RC4DecryptTimeNS`) dan isi nilainya di `Upload` seperti timing AES.
+4. **Putuskan target waktu upload dan batas video.** Dengan 8 MiB dan verifikasi round-trip ketiga cipher, upload sekitar 22 detik; tanpa verifikasi round-trip penuh sekitar 8 detik (angka di [benchmark.txt](benchmark.txt)). Pilihan: pertahankan 8 MiB, turunkan batas, atau verifikasi hanya sebagian cipher. Mohon putuskan bersama tim agar laporan memakai angka yang sama.
+5. **Jangan ubah format envelope atau label derivasi kunci** (`DES1`, `RC41`, bagian 7). Data profil dan KTP yang sudah tersimpan jadi tidak terbaca.
+
+### Sudah dikerjakan Kamal, relevan untuk BE-1
+
+- `EncryptDESFile`/`DecryptDESFile`/`EncryptRC4File`/`DecryptRC4File` memakai kontrak yang sama dengan AES (`key [32]byte`, HMAC diverifikasi sebelum dekripsi).
+- Migration `000001` sampai `000004` sudah dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model dan diuji naik, ulang, dan turun di PostgreSQL 16. Kamal menerapkannya ke database Supabase yang ia pakai pada 2026-10-27. Bila database kalian berbeda, ikuti urutan di `backend/migrations/README.md`. Setiap perubahan model yang menambah kolom perlu migration baru.
+- Kamal akan menjalankan pengukuran makro dan analisis ciphertext setelah permintaan 1 sampai 3 masuk ke `main`. Mohon beri kabar di PR atau grup ketika sudah.
