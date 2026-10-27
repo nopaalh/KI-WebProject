@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { MedicalRecord } from './patientExamples'
 
-  let { records, selectedId = $bindable<number | null>(null) }: { records: MedicalRecord[]; selectedId?: number | null } = $props()
+  let { records, selectedId = $bindable<number | null>(null), onEdit }: { records: MedicalRecord[]; selectedId?: number | null; onEdit?: (record: MedicalRecord) => void } = $props()
   let filter = $state('Semua')
   let search = $state('')
   let revision = $state<number | null>(null)
@@ -24,12 +24,12 @@
     <header class="patient-heading"><div class="record-title"><h1 class="patient-title" tabindex="-1">{record.title}</h1><span class="record-status" class:draft={version.status === 'Draf'}>{version.status}</span></div><p class="patient-subtitle">{record.department} · {record.reference}</p></header>
     <div class="record-layout">
       <section class="patient-card medical-note" aria-labelledby="note-title">
-        <div class="note-header"><h2 id="note-title">Catatan pemeriksaan</h2><span class="example-label">Data contoh</span></div>
+        <div class="note-header"><h2 id="note-title">Catatan pemeriksaan</h2>{#if onEdit && version.version === record.versions[0]?.version}<button class="patient-button secondary" type="button" onclick={() => onEdit?.(record)}>Revisi catatan</button>{:else}<span class="example-label">Data contoh</span>{/if}</div>
         {#if version.version !== record.versions[0]?.version}<div class="version-banner" role="status">Anda sedang membaca versi terdahulu. <button class="text-button" type="button" onclick={() => revision = null}>Lihat versi terbaru</button></div>{/if}
         <dl class="record-metadata"><div><dt>Ditulis oleh</dt><dd>{version.author}</dd></div><div><dt>Terakhir diperbarui</dt><dd>{version.date}</dd></div></dl>
         <h3>{version.summary}</h3><p class="note-content">{version.note}</p>
         <div class="record-explanation">{version.status === 'Draf' ? 'Catatan masih disusun oleh dokter dan dapat berubah. Anda dapat melihat pembaruannya di halaman ini.' : 'Catatan ini sudah ditandai final oleh dokter.'}</div>
-        <p class="patient-note">Rekam medis hanya dapat diperbarui oleh pihak rumah sakit. Data yang ditampilkan di sini adalah contoh, bukan hasil pemeriksaan Anda.</p>
+        <p class="patient-note">{onEdit ? 'Data contoh. Revisi pada tampilan ini hanya disimpan sementara dan belum dikirim ke rumah sakit.' : 'Rekam medis hanya dapat diperbarui oleh pihak rumah sakit. Data yang ditampilkan di sini adalah contoh, bukan hasil pemeriksaan Anda.'}</p>
       </section>
       <aside class="patient-card history-panel" aria-labelledby="history-title">
         <h2 id="history-title">Riwayat perubahan</h2><p>Setiap catatan memiliki penulis dan waktu pembaruan.</p>
@@ -41,7 +41,7 @@
       </aside>
     </div>
   {:else}
-    <header class="patient-heading"><h1 class="patient-title" tabindex="-1">Rekam medis</h1><p class="patient-subtitle">Ikuti perkembangan pemeriksaan dan baca catatan dari dokter.</p></header>
+    <header class="patient-heading"><h1 class="patient-title" tabindex="-1">Rekam medis</h1><p class="patient-subtitle">{onEdit ? 'Kelola catatan pemeriksaan pasien dan tinjau setiap revisinya.' : 'Ikuti perkembangan pemeriksaan dan baca catatan dari dokter.'}</p></header>
     <section class="patient-card records-panel" aria-labelledby="records-title">
       <div class="records-heading"><div><h2 id="records-title">Riwayat pemeriksaan</h2><p>Catatan contoh untuk memperlihatkan alur pemeriksaan.</p></div><span class="example-label">Data contoh</span></div>
       <div class="records-toolbar"><div class="record-filters" aria-label="Status rekam medis">{#each ['Semua', 'Draf', 'Final'] as item}<button type="button" aria-pressed={filter === item} class:active={filter === item} onclick={() => filter = item}>{item}</button>{/each}</div><input class="record-search" type="search" aria-label="Cari pemeriksaan" placeholder="Cari pemeriksaan" bind:value={search} /></div>
