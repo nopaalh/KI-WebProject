@@ -190,3 +190,57 @@ var desFP = [64]byte{
 	34, 2, 42, 10, 50, 18, 58, 26,
 	33, 1, 41, 9, 49, 17, 57, 25,
 }
+
+// DESXor meng-XOR dua slice bit elemen per elemen dan mengembalikan slice baru.
+func DESXor(a, b []byte) []byte {
+	output := make([]byte, len(a))
+	for i := range a {
+		output[i] = a[i] ^ b[i]
+	}
+	return output
+}
+
+// desSBoxRow dan desSBoxColumn memilih bit baris dan kolom dari kelompok 6 bit,
+// logikanya sama seperti desIP: baris dari bit ke-1 dan ke-6, kolom dari bit ke-2 sampai ke-5.
+var desSBoxRow = []byte{1, 6}
+var desSBoxColumn = []byte{2, 3, 4, 5}
+
+// DESBitsToInt mengubah bit (kiri = paling besar) jadi angka, misalnya 1100 jadi 12.
+func DESBitsToInt(bits []byte) int {
+	number := 0
+	for _, bit := range bits {
+		number = number*2 + int(bit)
+	}
+	return number
+}
+
+// DESIntToBits kebalikan DESBitsToInt -> angka jadi width bit, misalnya 12 dengan width 4 jadi 1100.
+func DESIntToBits(number, width int) []byte {
+	bits := make([]byte, width)
+	for i := width - 1; i >= 0; i-- {
+		bits[i] = byte(number % 2)
+		number /= 2
+	}
+	return bits
+}
+
+// DESSBoxSubstitution mereduksi 48 bit jadi 32 bit, tiap kelompok 6 bit masuk S-box miliknya sendiri
+// dan keluar sebagai 4 bit, lalu semuanya digabung berurutan.
+func DESSBoxSubstitution(input []byte) []byte {
+	output := make([]byte, 0, 32)
+	for box := 0; box < 8; box++ {
+		group := input[box*6 : box*6+6]
+		row := DESBitsToInt(DESPermutation(group, desSBoxRow))
+		column := DESBitsToInt(DESPermutation(group, desSBoxColumn))
+		value := desSBoxes[box][row][column]
+		output = append(output, DESIntToBits(int(value), 4)...)
+	}
+	return output
+}
+
+// DESFeistelFunction adalah fungsi F: ekspansi desE, XOR subkey, S-box, lalu desP.
+func DESFeistelFunction(r, subkey []byte) []byte {
+	expanded := DESPermutation(r, desE[:])
+	mixed := DESXor(expanded, subkey)
+	return DESPermutation(DESSBoxSubstitution(mixed), desP[:])
+}

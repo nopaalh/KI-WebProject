@@ -172,6 +172,31 @@ func TestDESFeistelTables(t *testing.T) {
 	}
 }
 
+func TestDESBitsAndInt(t *testing.T) {
+	if got := DESBitsToInt([]byte{1, 1, 0, 0}); got != 12 {
+		t.Fatalf("DESBitsToInt(1100) = %d, want 12", got)
+	}
+	if got := DESIntToBits(12, 4); !bytes.Equal(got, []byte{1, 1, 0, 0}) {
+		t.Fatalf("DESIntToBits(12, 4) = %v, want [1 1 0 0]", got)
+	}
+	// Lebar lebih besar dari panjang bit angka diisi nol di kiri.
+	if got := DESIntToBits(5, 6); !bytes.Equal(got, []byte{0, 0, 0, 1, 0, 1}) {
+		t.Fatalf("DESIntToBits(5, 6) = %v, want [0 0 0 1 0 1]", got)
+	}
+}
+
+func TestDESFeistelFunction(t *testing.T) {
+	// Contoh kerja FIPS ronde 1: R0 dan K1 menghasilkan F = 234AA9BB.
+	r0 := bitsFromString("1111 0000 1010 1010 1111 0000 1010 1010")
+	k1 := bitsFromString("000110 110000 001011 101111 111111 000111 000001 110010")
+
+	got := DESFeistelFunction(r0, k1)
+
+	if want := bitsFromString("0010 0011 0100 1010 1010 1001 1011 1011"); !bytes.Equal(got, want) {
+		t.Fatalf("F(R0, K1) = %v, want %v", got, want)
+	}
+}
+
 func TestDESRotateLeft(t *testing.T) {
 	bits := []byte{1, 2, 3, 4}
 	original := bytes.Clone(bits)
