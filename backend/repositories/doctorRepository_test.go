@@ -48,7 +48,7 @@ func TestDoctorListPatientsQueryAndEmptySlice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `SELECT profiles.id AS patient_profile_id, users.id AS user_id, users.name, users.username FROM patient_profiles AS profiles JOIN users ON users.id = profiles.user_id WHERE users.role = $1 AND profiles.user_role = $2 ORDER BY profiles.id ASC`
+	want := `SELECT profiles.id AS patient_profile_id, users.id AS user_id, users.name_aes, users.name_des, users.name_rc4, users.username_aes, users.username_des, users.username_rc4 FROM patient_profiles AS profiles JOIN users ON users.id = profiles.user_id WHERE users.role = $1 AND profiles.user_role = $2 ORDER BY profiles.id ASC`
 	if queries != 1 || query != want || !reflect.DeepEqual(args, []any{models.RolePatient, models.RolePatient}) {
 		t.Fatalf("expected one bound, patient-only summary query: count=%d SQL=%s args=%v", queries, query, args)
 	}

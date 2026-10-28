@@ -32,13 +32,39 @@ func (r *doctorDirectoryUsers) FindByID(id uint) (*models.User, error) {
 	return r.user, r.err
 }
 
+// doctorTestKey: kunci master untuk tes direktori dokter.
+var doctorTestKey [32]byte
+
+// sealForTest membuat amplop AES1, DES1, dan RC41 dari value, seperti yang dilakukan service.
+func sealForTest(key [32]byte, value string) (aes, des, rc4 []byte) {
+	var err error
+	if aes, err = utils.EncryptAESFile([]byte(value), key); err != nil {
+		panic(err)
+	}
+	if des, err = utils.EncryptDESFile([]byte(value), key); err != nil {
+		panic(err)
+	}
+	if rc4, err = utils.EncryptRC4File([]byte(value), key); err != nil {
+		panic(err)
+	}
+	return aes, des, rc4
+}
+
+// patientRowForTest membuat satu baris daftar pasien dengan nama dan username terenkripsi.
+func patientRowForTest(key [32]byte, profileID, userID uint, name, username string) repositories.PatientRow {
+	row := repositories.PatientRow{PatientProfileID: profileID, UserID: userID}
+	row.NameAES, row.NameDES, row.NameRC4 = sealForTest(key, name)
+	row.UsernameAES, row.UsernameDES, row.UsernameRC4 = sealForTest(key, username)
+	return row
+}
+
 type doctorDirectoryPatients struct {
-	patients []repositories.PatientSummary
+	patients []repositories.PatientRow
 	err      error
 	calls    int
 }
 
-func (r *doctorDirectoryPatients) ListPatients() ([]repositories.PatientSummary, error) {
+func (r *doctorDirectoryPatients) ListPatients() ([]repositories.PatientRow, error) {
 	r.calls++
 	return r.patients, r.err
 }
@@ -71,7 +97,7 @@ func TestDoctorDirectoryAccess(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			users := &doctorDirectoryUsers{user: &models.User{ID: 7, Role: tc.role}, err: tc.userErr}
 			patients := &doctorDirectoryPatients{err: tc.patientErr}
-			controller := controllers.NewDoctorController(services.NewDoctorService(users, patients))
+			controller := controllers.NewDoctorController(services.NewDoctorService(users, patients, doctorTestKey))
 			router := gin.New()
 			RegisterDoctorRouter(router.Group("/api"), controller, nil)
 			req := httptest.NewRequest(http.MethodGet, "/api/doctor/patients", nil)
@@ -110,9 +136,9 @@ func TestDoctorDirectoryUsesCurrentRole(t *testing.T) {
 	}
 	users := &doctorDirectoryUsers{user: &models.User{ID: 7, Role: models.RoleDoctor}}
 	want := []repositories.PatientSummary{{PatientProfileID: 3, UserID: 8, Name: "Patient", Username: "patient"}}
-	patients := &doctorDirectoryPatients{patients: want}
+	patients := &doctorDirectoryPatients{patients: []repositories.PatientRow{patientRowForTest(doctorTestKey, 3, 8, "Patient", "patient")}}
 	router := gin.New()
-	RegisterDoctorRouter(router.Group("/api"), controllers.NewDoctorController(services.NewDoctorService(users, patients)), nil)
+	RegisterDoctorRouter(router.Group("/api"), controllers.NewDoctorController(services.NewDoctorService(users, patients, doctorTestKey)), nil)
 	for i, status := range []int{http.StatusOK, http.StatusForbidden} {
 		req := httptest.NewRequest(http.MethodGet, "/api/doctor/patients", nil)
 		req.AddCookie(&http.Cookie{Name: "access_token", Value: token})
@@ -143,7 +169,7 @@ func TestDoctorDirectoryRejectsInvalidContextUserID(t *testing.T) {
 	for _, value := range []any{nil, "7", int(7), uint(0)} {
 		users := &doctorDirectoryUsers{}
 		patients := &doctorDirectoryPatients{}
-		controller := controllers.NewDoctorController(services.NewDoctorService(users, patients))
+		controller := controllers.NewDoctorController(services.NewDoctorService(users, patients, doctorTestKey))
 		router := gin.New()
 		router.GET("/patients", func(ctx *gin.Context) {
 			if value != nil {

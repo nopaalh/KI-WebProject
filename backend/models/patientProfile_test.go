@@ -23,13 +23,9 @@ func TestPatientProfileSchema(t *testing.T) {
 	if s.Table != "patient_profiles" {
 		t.Fatalf("unexpected table: %s", s.Table)
 	}
-	for _, name := range []string{"weight_kg", "height_cm", "age"} {
-		field := s.LookUpField(name)
-		if field == nil || !field.NotNull {
-			t.Fatalf("missing required plaintext measurement: %s", name)
-		}
-	}
-	for _, name := range []string{"nik_aes", "nik_des", "bpjs_number_aes", "bpjs_number_des"} {
+	for _, name := range []string{"nik_aes", "nik_des", "bpjs_number_aes", "bpjs_number_des",
+		"weight_kg_aes", "weight_kg_des", "weight_kg_rc4", "height_cm_aes", "height_cm_des", "height_cm_rc4",
+		"age_aes", "age_des", "age_rc4"} {
 		field := s.LookUpField(name)
 		if field == nil || field.DataType != schema.Bytes || !field.NotNull {
 			t.Fatalf("expected required binary ciphertext column: %s", name)
@@ -41,7 +37,7 @@ func TestPatientProfileSchema(t *testing.T) {
 			t.Fatalf("RC4 must be nullable while its implementation is pending: %s", name)
 		}
 	}
-	for _, name := range []string{"nik", "bpjs_number"} {
+	for _, name := range []string{"nik", "bpjs_number", "weight_kg", "height_cm", "age"} {
 		if s.LookUpField(name) != nil {
 			t.Fatalf("unexpected plaintext identity column: %s", name)
 		}
@@ -50,9 +46,6 @@ func TestPatientProfileSchema(t *testing.T) {
 	checks := s.ParseCheckConstraints()
 	for name, expression := range map[string]string{
 		"patient_profiles_patient_role_check": "user_role = 'patient'",
-		"patient_profiles_weight_check":       "weight_kg > 0",
-		"patient_profiles_height_check":       "height_cm > 0",
-		"patient_profiles_age_check":          "age >= 0",
 		"patient_profiles_nik_aes_check":      "octet_length(nik_aes) > 0",
 		"patient_profiles_nik_des_check":      "octet_length(nik_des) > 0",
 		"patient_profiles_nik_rc4_check":      "octet_length(nik_rc4) > 0",
@@ -113,7 +106,7 @@ func TestPatientProfileReferencesPatientUser(t *testing.T) {
 func TestPatientProfileJSONDoesNotExposeCiphertext(t *testing.T) {
 	profile := PatientProfile{
 		ID: 1, UserID: 2, UserRole: RolePatient,
-		WeightKG: 65.5, HeightCM: 170, Age: 21,
+		WeightKGAES: []byte("synthetic-envelope"), HeightCMAES: []byte("synthetic-envelope"), AgeAES: []byte("synthetic-envelope"),
 		NIKAES: []byte("synthetic-envelope"), NIKDES: []byte("synthetic-envelope"), NIKRC4: []byte("synthetic-envelope"),
 		BPJSNumberAES: []byte("synthetic-envelope"), BPJSNumberDES: []byte("synthetic-envelope"), BPJSNumberRC4: []byte("synthetic-envelope"),
 	}
@@ -126,7 +119,7 @@ func TestPatientProfileJSONDoesNotExposeCiphertext(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range fields {
-		if strings.Contains(key, "NIK") || strings.Contains(key, "BPJS") || key == "UserRole" {
+		if strings.Contains(key, "NIK") || strings.Contains(key, "BPJS") || strings.HasPrefix(key, "WeightKG") || strings.HasPrefix(key, "HeightCM") || strings.HasPrefix(key, "Age") || key == "UserRole" {
 			t.Fatalf("internal field exposed by JSON: %s", key)
 		}
 	}

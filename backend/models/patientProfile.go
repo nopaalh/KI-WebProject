@@ -5,9 +5,17 @@ type PatientProfile struct {
 	UserID   uint   `gorm:"not null;uniqueIndex"`
 	UserRole string `gorm:"not null;default:patient;check:patient_profiles_patient_role_check,user_role = 'patient'" json:"-"`
 
-	WeightKG float64 `gorm:"column:weight_kg;type:numeric(6,2);not null;check:patient_profiles_weight_check,weight_kg > 0"`
-	HeightCM float64 `gorm:"column:height_cm;type:numeric(6,2);not null;check:patient_profiles_height_check,height_cm > 0"`
-	Age      int     `gorm:"type:smallint;not null;check:patient_profiles_age_check,age >= 0"`
+	WeightKGAES []byte `gorm:"column:weight_kg_aes;not null" json:"-"`
+	WeightKGDES []byte `gorm:"column:weight_kg_des;not null" json:"-"`
+	WeightKGRC4 []byte `gorm:"column:weight_kg_rc4;not null" json:"-"`
+
+	HeightCMAES []byte `gorm:"column:height_cm_aes;not null" json:"-"`
+	HeightCMDES []byte `gorm:"column:height_cm_des;not null" json:"-"`
+	HeightCMRC4 []byte `gorm:"column:height_cm_rc4;not null" json:"-"`
+
+	AgeAES []byte `gorm:"column:age_aes;not null" json:"-"`
+	AgeDES []byte `gorm:"column:age_des;not null" json:"-"`
+	AgeRC4 []byte `gorm:"column:age_rc4;not null" json:"-"`
 
 	NIKAES []byte `gorm:"column:nik_aes;not null;check:patient_profiles_nik_aes_check,octet_length(nik_aes) > 0" json:"-"`
 	NIKDES []byte `gorm:"column:nik_des;not null;check:patient_profiles_nik_des_check,octet_length(nik_des) > 0" json:"-"`

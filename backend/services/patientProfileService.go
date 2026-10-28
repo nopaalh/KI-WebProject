@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 
 	"project1/models"
 	"project1/repositories"
@@ -84,11 +85,20 @@ func (s *PatientProfileService) Create(userID uint, input CreatePatientProfileIn
 		return nil, err
 	}
 
-	profile := &models.PatientProfile{
-		UserID: userID, UserRole: models.RolePatient,
-		WeightKG: input.WeightKG, HeightCM: input.HeightCM, Age: *input.Age,
-	}
+	profile := &models.PatientProfile{UserID: userID, UserRole: models.RolePatient}
 	var err error
+	profile.WeightKGAES, profile.WeightKGDES, profile.WeightKGRC4, err = s.encryptIdentity(strconv.FormatFloat(input.WeightKG, 'f', 2, 64))
+	if err != nil {
+		return nil, err
+	}
+	profile.HeightCMAES, profile.HeightCMDES, profile.HeightCMRC4, err = s.encryptIdentity(strconv.FormatFloat(input.HeightCM, 'f', 2, 64))
+	if err != nil {
+		return nil, err
+	}
+	profile.AgeAES, profile.AgeDES, profile.AgeRC4, err = s.encryptIdentity(strconv.Itoa(*input.Age))
+	if err != nil {
+		return nil, err
+	}
 	profile.NIKAES, profile.NIKDES, profile.NIKRC4, err = s.encryptIdentity(input.NIK)
 	if err != nil {
 		return nil, err
@@ -133,9 +143,27 @@ func (s *PatientProfileService) Get(userID uint) (*PatientProfileView, error) {
 	if !profileDigits(nik, 16) || !profileDigits(bpjs, 13) {
 		return nil, ErrProfileIntegrity
 	}
+	weightText, err := s.decryptIdentity(profile.WeightKGAES, profile.WeightKGDES, profile.WeightKGRC4)
+	if err != nil {
+		return nil, err
+	}
+	heightText, err := s.decryptIdentity(profile.HeightCMAES, profile.HeightCMDES, profile.HeightCMRC4)
+	if err != nil {
+		return nil, err
+	}
+	ageText, err := s.decryptIdentity(profile.AgeAES, profile.AgeDES, profile.AgeRC4)
+	if err != nil {
+		return nil, err
+	}
+	weight, weightErr := strconv.ParseFloat(weightText, 64)
+	height, heightErr := strconv.ParseFloat(heightText, 64)
+	age, ageErr := strconv.Atoi(ageText)
+	if weightErr != nil || heightErr != nil || ageErr != nil {
+		return nil, ErrProfileIntegrity
+	}
 	return &PatientProfileView{
 		ID: profile.ID, UserID: profile.UserID,
-		WeightKG: profile.WeightKG, HeightCM: profile.HeightCM, Age: profile.Age,
+		WeightKG: weight, HeightCM: height, Age: age,
 		NIK: nik, BPJSNumber: bpjs,
 	}, nil
 }

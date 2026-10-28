@@ -119,7 +119,7 @@ func newFileRouteFixture(t *testing.T) *fileRouteFixture {
 	controller := controllers.NewFileController(service)
 	router := gin.New()
 	RegisterFileRouter(router.Group("/api"), controller)
-	RegisterDoctorRouter(router.Group("/api"), controllers.NewDoctorController(services.NewDoctorService(users, &fileRouteDirectory{})), controller)
+	RegisterDoctorRouter(router.Group("/api"), controllers.NewDoctorController(services.NewDoctorService(users, &fileRouteDirectory{}, key)), controller)
 	return &fileRouteFixture{
 		router: router, controller: controller, repo: repo,
 		storageDir: storageDir, token: fileRouteToken(t, 7), users: users, patients: patients,
@@ -357,7 +357,7 @@ func TestFileRoutesNotFoundAndOwnership(t *testing.T) {
 			})
 		}
 	}
-	if fixture.repo.files[metadata.ID] != original {
+	if !reflect.DeepEqual(fixture.repo.files[metadata.ID], original) {
 		t.Fatal("not-found requests must not modify the owner's metadata")
 	}
 }
@@ -448,7 +448,7 @@ func TestFileRoutesMetadataDatabaseFailuresAreRedacted(t *testing.T) {
 func TestFileRoutesListOwnedFiles(t *testing.T) {
 	fixture := newFileRouteFixture(t)
 	older := uploadFileRoute(t, fixture, "older.bin", []byte("older plaintext"))
-	fixture.repo.files[2] = models.File{ID: 2, UserID: 8, OriginalName: "private-other-user.bin", AESPath: "/private/other-user"}
+	fixture.repo.files[2] = models.File{ID: 2, UserID: 8, AESPath: "/private/other-user"}
 	newer := uploadFileRoute(t, fixture, "newer.bin", []byte("newer plaintext"))
 
 	// Listing is metadata-only; it must not require ciphertext to exist on disk.
@@ -470,7 +470,7 @@ func TestFileRoutesListOwnedFiles(t *testing.T) {
 
 func TestFileRoutesListEmptyAndDatabaseFailure(t *testing.T) {
 	fixture := newFileRouteFixture(t)
-	fixture.repo.files[1] = models.File{ID: 1, UserID: 8, OriginalName: "another-user.bin"}
+	fixture.repo.files[1] = models.File{ID: 1, UserID: 8}
 	response := fileRouteRequest(fixture.router, http.MethodGet, "/api/files", fixture.token, "", nil)
 	files := decodeFileRouteList(t, response)
 	if files == nil || len(files) != 0 || response.Body.String() != `{"files":[]}` {

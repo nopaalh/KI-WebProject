@@ -1,6 +1,9 @@
 package routers
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,8 +34,8 @@ func (r *memoryUserRepository) Create(user *models.User) error {
 	return nil
 }
 
-func (r *memoryUserRepository) FindByUsername(username string) (*models.User, error) {
-	if r.user.Username != username {
+func (r *memoryUserRepository) FindByUsernameIndex(index []byte) (*models.User, error) {
+	if !bytes.Equal(r.user.UsernameIndex, index) {
 		return nil, gorm.ErrRecordNotFound
 	}
 	return &r.user, nil
@@ -48,9 +51,26 @@ func (r *memoryUserRepository) FindByID(id uint) (*models.User, error) {
 	return &r.user, nil
 }
 
+var userTestKey [32]byte
+
+// userForTest membuat akun dengan nama dan username terenkripsi, seperti hasil AuthService.Register.
+func userForTest(id uint, name, username, passwordHash, role string) models.User {
+	user := models.User{ID: id, PasswordHash: passwordHash, Role: role, UsernameIndex: usernameIndexForTest(userTestKey, username)}
+	user.NameAES, user.NameDES, user.NameRC4 = sealForTest(userTestKey, name)
+	user.UsernameAES, user.UsernameDES, user.UsernameRC4 = sealForTest(userTestKey, username)
+	return user
+}
+
+func usernameIndexForTest(key [32]byte, username string) []byte {
+	mac := hmac.New(sha256.New, key[:])
+	mac.Write([]byte("users/username-index"))
+	mac.Write([]byte(username))
+	return mac.Sum(nil)
+}
+
 func newUserTestRouter(repo *memoryUserRepository) *gin.Engine {
 	router := gin.New()
-	RegisterUserRouter(router.Group("/api"), controllers.NewAuthController(services.NewAuthService(repo)))
+	RegisterUserRouter(router.Group("/api"), controllers.NewAuthController(services.NewAuthService(repo, userTestKey)))
 	return router
 }
 
@@ -79,9 +99,7 @@ func TestPublicRegistrationAlwaysCreatesPatient(t *testing.T) {
 
 func TestMeReadsCurrentDatabaseRole(t *testing.T) {
 	t.Setenv("JWT_SECRET", "user-router-test-secret")
-	repo := &memoryUserRepository{user: models.User{
-		ID: 1, Name: "Synthetic User", Username: "demo", PasswordHash: "never-expose-this", Role: models.RolePatient,
-	}}
+	repo := &memoryUserRepository{user: userForTest(1, "Synthetic User", "demo", "never-expose-this", models.RolePatient)}
 	router := newUserTestRouter(repo)
 
 	// Use the real login endpoint and its HttpOnly cookie for both roles.
@@ -162,9 +180,7 @@ func TestLoginLogoutCookieJarFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := newUserTestRouter(&memoryUserRepository{user: models.User{
-		ID: 1, Name: "Synthetic User", Username: "demo", PasswordHash: string(hash), Role: models.RolePatient,
-	}})
+	router := newUserTestRouter(&memoryUserRepository{user: userForTest(1, "Synthetic User", "demo", string(hash), models.RolePatient)})
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)

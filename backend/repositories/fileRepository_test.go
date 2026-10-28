@@ -235,7 +235,7 @@ func TestUploadFileIncludesSubjectPathsAndTimings(t *testing.T) {
 		}
 		file := &models.File{
 			UserID: 7, PatientProfileID: subject,
-			OriginalName: "ktp.png", OriginalSize: 42, OriginalType: "image/png", CipherSetVersion: 1,
+			OriginalNameAES: []byte("aes-name"), OriginalNameDES: []byte("des-name"), OriginalNameRC4: []byte("rc4-name"), OriginalSize: 42, OriginalType: "image/png", CipherSetVersion: 1,
 			AESPath: "aes/ktp", RC4Path: "rc4/ktp", DESPath: "des/ktp",
 			AESEncryptTimeNS: 1, AESDecryptTimeNS: 2,
 			DESEncryptTimeNS: 3, DESDecryptTimeNS: 4,
@@ -253,7 +253,7 @@ func TestUploadFileIncludesSubjectPathsAndTimings(t *testing.T) {
 				t.Fatalf("insert missing column %s: %s", column, query)
 			}
 		}
-		wantArgs := []any{uint(7), subject, "ktp.png", int64(42), "image/png", 1, "aes/ktp", "rc4/ktp", "des/ktp",
+		wantArgs := []any{uint(7), subject, []byte("aes-name"), []byte("des-name"), []byte("rc4-name"), int64(42), "image/png", 1, "aes/ktp", "rc4/ktp", "des/ktp",
 			int64(1), int64(2), int64(3), int64(4), int64(5), int64(6)}
 		if !reflect.DeepEqual(args, wantArgs) {
 			t.Fatalf("unexpected insert bindings: %v", args)

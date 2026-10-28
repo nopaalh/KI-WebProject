@@ -32,17 +32,18 @@ func main() {
 		panic("Failed to migrate database: " + err.Error())
 	}
 
-	userRepo := repositories.NewUserRepository(config.DB)
-	profileRepo := repositories.NewPatientProfileRepository(config.DB)
-	authService := services.NewAuthService(userRepo)
-	authController := controllers.NewAuthController(authService)
-
 	keyBytes, err := hex.DecodeString(os.Getenv("FILE_ENCRYPTION_KEY"))
 	if err != nil || len(keyBytes) != utils.AESFileKeySize {
 		panic("FILE_ENCRYPTION_KEY must contain 64 hexadecimal characters (32 random bytes)")
 	}
 	var fileKey [utils.AESFileKeySize]byte
 	copy(fileKey[:], keyBytes)
+
+	userRepo := repositories.NewUserRepository(config.DB)
+	profileRepo := repositories.NewPatientProfileRepository(config.DB)
+	authService := services.NewAuthService(userRepo, fileKey)
+	authController := controllers.NewAuthController(authService)
+
 	storageDir := os.Getenv("FILE_STORAGE_DIR")
 	if storageDir == "" {
 		storageDir = "storage/uploads"
@@ -62,7 +63,7 @@ func main() {
 	ktpController := controllers.NewPatientKTPController(ktpService)
 
 	doctorRepo := repositories.NewDoctorRepository(config.DB)
-	doctorService := services.NewDoctorService(userRepo, doctorRepo)
+	doctorService := services.NewDoctorService(userRepo, doctorRepo, fileKey)
 	doctorController := controllers.NewDoctorController(doctorService)
 
 	r := routers.SetupRouter(routers.Controller{

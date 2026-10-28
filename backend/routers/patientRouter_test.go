@@ -95,8 +95,8 @@ func TestCreatePatientProfileEncryptsAESDESAndRC4(t *testing.T) {
 		t.Fatalf("status %d: %s", response.Code, response.Body.String())
 	}
 	p := repo.stored
-	if p == nil || p.UserID != 7 || p.UserRole != models.RolePatient || p.WeightKG != 65.5 || p.HeightCM != 170 || p.Age != 0 {
-		t.Fatal("expected authenticated patient's profile and original measurements")
+	if p == nil || p.UserID != 7 || p.UserRole != models.RolePatient {
+		t.Fatal("expected authenticated patient's profile")
 	}
 	if users.calls != 1 {
 		t.Fatalf("role must be loaded from the database once, got %d lookups", users.calls)
@@ -127,6 +127,18 @@ func TestCreatePatientProfileEncryptsAESDESAndRC4(t *testing.T) {
 		}
 		if bytes.Contains(response.Body.Bytes(), []byte(tt.value)) {
 			t.Fatal("response leaked an identity number")
+		}
+	}
+
+	for _, tt := range []struct {
+		value         string
+		aes, des, rc4 []byte
+	}{{"65.50", p.WeightKGAES, p.WeightKGDES, p.WeightKGRC4}, {"170.00", p.HeightCMAES, p.HeightCMDES, p.HeightCMRC4}, {"0", p.AgeAES, p.AgeDES, p.AgeRC4}} {
+		aes, errAES := utils.DecryptAESFile(tt.aes, key)
+		des, errDES := utils.DecryptDESFile(tt.des, key)
+		rc4, errRC4 := utils.DecryptRC4File(tt.rc4, key)
+		if errAES != nil || errDES != nil || errRC4 != nil || string(aes) != tt.value || string(des) != tt.value || string(rc4) != tt.value {
+			t.Fatalf("measurement %s did not round-trip through all three ciphers", tt.value)
 		}
 	}
 	if !strings.Contains(response.Body.String(), `"active":["aes","des","rc4"]`) || !strings.Contains(response.Body.String(), `"pending":[]`) {
