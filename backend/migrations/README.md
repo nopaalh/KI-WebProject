@@ -16,7 +16,7 @@ Migration bersifat **incremental untuk database yang sudah memiliki tabel `users
 | `000006_add_file_cipher_set_version` | Kolom `files.cipher_set_version` (`BIGINT NOT NULL DEFAULT 0`): 0 untuk upload lama yang hanya AES, 1 untuk upload dengan tiga cipher | Tabel `files` |
 | `000007_add_file_patient_profile_id` | Kolom `files.patient_profile_id` (`BIGINT` nullable), index, dan FK `fk_patient_profiles_attachments` ke `patient_profiles(id)` (RESTRICT): pasien subjek lampiran, terpisah dari pengunggah | 000003, tabel `files` |
 
-Definisi 000002-000007 dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model di `backend/models/` (hasil `pg_dump` identik, dan `AutoMigrate` tidak mengubah apa pun sesudahnya). Bila model berubah, migration baru harus ditambahkan. Baris `files` lama menjadi `cipher_set_version = 0` (hanya AES) dan tidak di-backfill: 000006 tidak membuktikan baris itu punya salinan DES/RC4.
+Definisi 000002-000007 dicocokkan dengan schema yang dihasilkan `AutoMigrate` dari model di `backend/models/` (hasil `pg_dump` identik, dan `AutoMigrate` tidak mengubah apa pun sesudahnya). Bila model berubah, migration baru harus ditambahkan. Baris `files` lama menjadi `cipher_set_version = 0` (hanya AES) dan tidak di-backfill: 000006 tidak membuktikan baris itu punya salinan DES/RC4. Perubahan enkripsi kolom nama, username, berat, tinggi, umur, dan nama file belum punya migration SQL; gunakan database baru yang kosong.
 
 Migration 000001 menambahkan:
 

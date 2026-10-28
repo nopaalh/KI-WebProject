@@ -134,13 +134,13 @@ Ini instrumentasi satu sampel, bukan benchmark ketat. Evaluasi wajib memakai inp
 
 | Cipher | Envelope |
 | --- | --- |
-| AES | `AES1 || IV 16 B || AES-128-CBC/PKCS7 || HMAC-SHA256` |
-| DES | `DES1 || nonce 16 B || DES-CTR || HMAC-SHA256` |
-| RC4 | `RC41 || nonce 16 B || RC4-drop1536 || HMAC-SHA256` |
+| AES | `AES1 \|\| IV 16 B \|\| AES-128-CBC/PKCS7 \|\| HMAC-SHA256` |
+| DES | `DES1 \|\| nonce 16 B \|\| DES-CTR \|\| HMAC-SHA256` |
+| RC4 | `RC41 \|\| nonce 16 B \|\| RC4-drop1536 \|\| HMAC-SHA256` |
 
 HMAC diverifikasi sebelum dekripsi. Utilitas yang sudah ada memakai pemisahan kunci enkripsi/MAC melalui label derivasi per cipher; DES/RC4 memakai nonce dalam derivasi encryption key. Master key tidak dikirim ke frontend.
 
-**DES dan RC4 tidak aman untuk produksi; implementasi buatan tangan bersifat akademik.** Menyimpan tiga salinan juga membuat kerahasiaan bergantung pada cipher terlemah. Metadata nama/tipe/ukuran file masih plaintext; integrasi ini bukan penyelesaian perlindungan semua metadata atau kepatuhan regulasi.
+**DES dan RC4 tidak aman untuk produksi; implementasi buatan tangan bersifat akademik.** Menyimpan tiga salinan juga membuat kerahasiaan bergantung pada cipher terlemah. Tipe dan ukuran file masih teks biasa; integrasi ini bukan penyelesaian perlindungan semua metadata atau kepatuhan regulasi.
 
 ## 6. Contoh penggunaan
 

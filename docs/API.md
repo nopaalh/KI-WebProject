@@ -13,16 +13,16 @@ Dokumen ini mengikuti implementasi backend saat ini, bukan rancangan fitur menda
 | Profil pengguna / endpoint `/me` | Tersedia; `GET /api/users/me` mengembalikan identitas dan role dari database |
 | Logout browser | Tersedia; `POST /api/users/logout` menghapus cookie HttpOnly, lihat bagian 5.1 |
 | Refresh token dan revokasi JWT server-side | Belum tersedia |
-| Upload, metadata, dan download file tiga cipher | Tersedia; upload baru AES/DES/RC4 all-or-nothing, download `?algorithm=aes|des|rc4`; lihat bagian 11 |
+| Upload, metadata, dan download file tiga cipher | Tersedia; upload baru AES/DES/RC4 all-or-nothing, download `?algorithm=aes\|des\|rc4`; lihat bagian 11 |
 | Lampiran pasien dan akses dokter | Tersedia; file memiliki pasien subjek terpisah dari pengunggah; `GET /api/files` mengikuti role, lihat bagian 12 |
-| Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, NIK/BPJS record baru terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
+| Create/baca profil pasien sendiri | Tersedia; `POST` dan `GET /api/patients/me/profile`, berat, tinggi, umur, NIK, dan BPJS terenkripsi AES + DES + RC4; GET mengembalikan nilai terdekripsi hanya kepada pasien pemilik; lihat [kontrak profil pasien](#9-profil-pasien) |
 | Baca data KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp`; lihat [kontrak KTP](#10-ktp-pasien) |
 | Baca foto KTP pasien sendiri | Tersedia; `GET /api/patients/me/ktp/photo`; lihat bagian 10.4 |
 | Create KTP dan upload foto | Tersedia; `POST /api/patients/me/ktp`, multipart data JSON + photo; lihat bagian 10.7 |
 | RC4 / integrasi DES | DES dan RC4 tersedia untuk profil dan pembacaan KTP; pipeline file generik juga memakai ketiga cipher untuk upload baru |
 | CORS untuk akses lintas origin dari browser | Tersedia |
 
-**FrontEnd dapat mengintegrasikan register, login, upload file, daftar lampiran sesuai role/pasien subjek, metadata per ID, dan download hasil dekripsi AES/DES/RC4.** Gunakan hanya endpoint yang tercantum; pemilihan cipher file melalui query algorithm pada endpoint dekripsi. Role `patient`/`doctor`, kontrak `/me`, migrasi, dan penyediaan dokter dijelaskan di [Panduan Role](ROLES.md).
+**FrontEnd dapat mengintegrasikan register, login, upload file, daftar lampiran sesuai role/pasien subjek, metadata per ID, dan download hasil dekripsi AES/DES/RC4.** Gunakan hanya endpoint yang tercantum; pemilihan cipher file melalui query algorithm pada endpoint dekripsi. Akun dokter dibuat dengan mengubah `role` langsung di database.
 
 ## 2. Base URL dan konfigurasi
 
@@ -493,7 +493,7 @@ Respons sukses — **`201 Created`**:
 }
 ```
 
-Respons create tidak mengirim NIK/BPJS, ciphertext, association KTP, password hash, atau kunci. NIK/BPJS record baru disimpan sebagai tiga representasi AES/DES/RC4; setiap hasil diverifikasi round-trip sebelum insert. Berat, tinggi, dan umur tetap plaintext sesuai keputusan saat ini. Nilai `active` **bukan klaim seluruh profil terenkripsi atau aplikasi aman untuk produksi**.
+Respons create tidak mengirim NIK/BPJS, ciphertext, association KTP, password hash, atau kunci. NIK/BPJS record baru disimpan sebagai tiga representasi AES/DES/RC4; setiap hasil diverifikasi round-trip sebelum insert. Berat, tinggi, dan umur juga dienkripsi AES, DES, dan RC4. Nilai `active` **bukan klaim seluruh profil terenkripsi atau aplikasi aman untuk produksi**.
 
 | Status error POST | Kondisi |
 | --- | --- |
@@ -542,7 +542,7 @@ Kompatibilitas record lama: hanya bila **kedua** kolom RC4 NULL, GET membaca dan
 
 Error tetap berbentuk `{"message":"..."}`, tanpa data sebagian. Pada `404`, frontend dapat menawarkan form create profil; jangan menganggapnya kegagalan login.
 
-Pemeriksaan cipher tidak mengautentikasi berat/tinggi/umur yang masih plaintext, tidak memverifikasi identitas resmi, dan tidak membuktikan kebal manipulasi administrator. DES/RC4 serta implementasi edukasi bukan rekomendasi keamanan medis produksi.
+Pemeriksaan cipher tidak memverifikasi identitas resmi, dan tidak membuktikan kebal manipulasi administrator. DES/RC4 serta implementasi edukasi bukan rekomendasi keamanan medis produksi.
 
 Detail schema, key, kompatibilitas data lama, dan pengujian ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Kontrak request/response profil dipusatkan di bagian ini.
 
@@ -763,7 +763,7 @@ Sukses `200` binary bytes asli, `Content-Type: application/octet-stream`, attach
 
 Error: `400` input/algorithm invalid; `401` tidak terautentikasi; `403` role tidak diizinkan; `404` file tidak ada/tidak berwenang atau profil upload belum ada; `409` memilih DES/RC4 untuk legacy AES-only; `413` batas ukuran; `500` kegagalan storage/DB/integritas. Bentuk error tetap `{"message":"..."}`; internal error `Failed to process file`.
 
-**Legacy dan batasan:** versi 0 tetap dapat dibaca dengan AES jika envelope valid; tidak otomatis di-backfill. AutoMigrate menambahkan empat kolom timing dan versi set cipher, tetapi migrasi tidak dijalankan dalam sesi ini. Filesystem dan PostgreSQL bukan satu transaksi crash-atomic; crash/cleanup failure dapat meninggalkan orphan. Metadata nama/tipe/ukuran tetap plaintext, DES/RC4 bukan cipher produksi, dan batas video masih 8 MiB.
+**Legacy dan batasan:** versi 0 tetap dapat dibaca dengan AES jika envelope valid; tidak otomatis di-backfill. AutoMigrate menambahkan empat kolom timing dan versi set cipher, tetapi migrasi tidak dijalankan dalam sesi ini. Filesystem dan PostgreSQL bukan satu transaksi crash-atomic; crash/cleanup failure dapat meninggalkan orphan. Tipe dan ukuran file tetap teks biasa, DES/RC4 bukan cipher produksi, dan batas video masih 8 MiB.
 
 Timing hanya mencakup fungsi envelope, bukan I/O/network/DB. Download versi 1 hanya mendekripsi cipher pilihan, sehingga latensi HTTP mencerminkan satu cipher; header melaporkan waktu fungsi dekripsi yang dipilih. Bukan benchmark berulang atau klaim seluruh assignment selesai. Detail konfigurasi, envelope, cleanup, pengukuran, dan contoh klien: [FILES.md](FILES.md).
 
