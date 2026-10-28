@@ -4,13 +4,13 @@
 
 Kontrak request/response, validasi field, autentikasi/ownership, status error, serta contoh data sintetis untuk **POST dan GET `/api/patients/me/profile`** dipusatkan di **[API.md — bagian 9: Profil pasien](API.md#9-profil-pasien)**.
 
-Dokumen ini hanya membahas penyimpanan dan implementasi agar kontrak tidak diduplikasi. Belum ada update/delete profil atau frontend profil pada perubahan ini. Endpoint create/upload serta baca data/foto KTP tersedia; kontraknya di [API.md — bagian 10](API.md#10-ktp-pasien).
+Dokumen ini hanya membahas penyimpanan dan implementasi agar kontrak tidak diduplikasi. Belum ada update/delete profil. Endpoint create/upload serta baca data/foto KTP tersedia; kontraknya di [API.md — bagian 10](API.md#10-ktp-pasien).
 
 ## Enkripsi dan batas perlindungan
 
-Record profil baru menyimpan NIK dan BPJS sebagai tiga representasi terenkripsi: **AES-128-CBC-HMAC-SHA256**, **DES-CTR-HMAC-SHA256**, dan **RC4-drop1536-HMAC-SHA256**. RC4 memakai envelope `RC41`, nonce acak 16 byte, serta kunci enkripsi turunan per nonce. Setiap ciphertext didekripsi dan dibandingkan byte-per-byte sebelum insert; jika salah satu gagal, profil tidak disimpan.
+Record profil baru menyimpan berat, tinggi, umur, NIK, dan BPJS sebagai tiga representasi terenkripsi: **AES-128-CBC-HMAC-SHA256**, **DES-CTR-HMAC-SHA256**, dan **RC4-drop1536-HMAC-SHA256**. RC4 memakai envelope `RC41`, nonce acak 16 byte, serta kunci enkripsi turunan per nonce. Setiap ciphertext didekripsi dan dibandingkan byte-per-byte sebelum insert; jika salah satu gagal, profil tidak disimpan.
 
-Implementasi ini **belum memenuhi ketentuan tiga cipher untuk seluruh data**: berat/tinggi/umur tetap plaintext sesuai keputusan pengguna. DES, RC4, dan implementasi cipher buatan tangan bersifat akademik, bukan keamanan medis produksi.
+Berat, tinggi, dan umur juga dienkripsi dengan cara yang sama. DES, RC4, dan implementasi cipher buatan tangan bersifat akademik, bukan keamanan medis produksi.
 
 ## Penyimpanan dan perubahan schema
 

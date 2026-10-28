@@ -19,37 +19,40 @@ Arsitektur yang disepakati:
 
 ## 2. Status aktual vs rencana
 
-Status diperbarui terhadap `main` pada `57d06b2` (2026-10-27) berdasarkan kode di repo, bukan rencana. Periksa kode dan Git sebelum mulai bekerja karena dokumen bisa tertinggal.
+Status diperbarui terhadap `main` pada `55bcc2d` (2026-10-28) berdasarkan kode di repo, bukan rencana. Periksa kode dan Git sebelum mulai bekerja karena dokumen bisa tertinggal.
 
 | Bagian | Status |
 | --- | --- |
 | Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada dalam baseline |
 | Model `User` dan `File` | Sudah ada dalam baseline |
-| Upload, daftar/metadata file sendiri, dekripsi file AES | Sudah ada; query dibatasi `user_id` |
+| Upload, daftar/metadata file, dekripsi file | Sudah ada; file dienkripsi AES, DES, dan RC4; akses mengikuti role dan pasien pemilik |
 | AES-128-CBC + HMAC-SHA256, IV acak, verifikasi round-trip saat upload | Sudah ada; AES buatan tangan untuk edukasi, bukan implementasi produksi |
-| Durasi enkripsi/dekripsi AES | Sudah dicatat; belum merupakan evaluasi tiga cipher yang lengkap |
+| Durasi enkripsi/dekripsi AES, DES, dan RC4 | Sudah dicatat per file |
 | Batas upload | Saat ini 8 MiB; bukan 25 MiB |
-| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download hanya membaca dan mendekripsi cipher yang dipilih lewat `?algorithm=aes|des|rc4` (HMAC dan ukuran plaintext diperiksa), sehingga waktu tiap cipher dapat dibandingkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
-| Role `patient`/`doctor` dan `GET /api/users/me` | Ada perubahan kode lokal dari sesi ini, belum di-commit/push; jangan dianggap sudah tersedia bagi anggota tim lain |
-| Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Rencana; belum diimplementasikan dalam baseline yang diperiksa |
-| Frontend final portal rumah sakit | Belum tersedia di checkout yang diperiksa |
-| Perlindungan seluruh data sensitif dengan tiga cipher | Belum terpenuhi; nama user dan metadata file masih berupa field biasa |
+| DES dan RC4 dalam pipeline penyimpanan | Upload file baru menyimpan ketiga ciphertext dan memverifikasi round-trip dari disk sebelum insert; download hanya membaca dan mendekripsi cipher yang dipilih lewat `?algorithm=aes\|des\|rc4` (HMAC dan ukuran plaintext diperiksa), sehingga waktu tiap cipher dapat dibandingkan. Data lama AES-only tidak otomatis di-backfill; lihat API.md bagian 11 dan FILES.md |
+| Role `patient`/`doctor` dan `GET /api/users/me` | Sudah ada di `main` |
+| Relasi pasien, rekam medis, draf/final, version history, akses dokter ke data pasien | Relasi pasien dan akses dokter ke dokumen pasien sudah ada; rekam medis, draf/final, dan version history belum |
+| Frontend final portal rumah sakit | Sudah ada: portal pasien dan portal dokter; rekam medis masih data contoh |
+| Perlindungan seluruh data sensitif dengan tiga cipher | Terpenuhi untuk data pribadi dan file; ID, role, ukuran dan tipe file, serta lokasi file tetap teks biasa |
 
-Perubahan lokal role menyediakan fondasi identitas saja, **belum RBAC rumah sakit lengkap**. Endpoint file tetap owner-only. Kolom role didefinisikan langsung pada model `User` untuk dibuat/ditambahkan lewat `AutoMigrate` yang sudah ada; tidak memakai file SQL role terpisah. AutoMigrate belum dijalankan ke database dalam sesi ini. Detail perubahan lokal ada di [ROLES.md](ROLES.md).
+Role menyediakan fondasi identitas saja, **belum RBAC rumah sakit lengkap**. Akses file mengikuti role dan pasien pemilik. Kolom role dibuat lewat `AutoMigrate` dan migration `000002`.
+
+| Bagian | Status |
+| --- | --- |
 | Register/login, hash password bcrypt, JWT lewat cookie HttpOnly | Sudah ada |
-| Role `patient`/`doctor` (kolom `role` pada `User`) dan `GET /api/users/me` | Sudah di `main` (PR #3 dan #4); belum ada endpoint yang melayani petugas |
-| Upload, daftar/metadata, dekripsi file umum (dokumen, video) | Ada, **hanya AES** (`AES1`), batas 8 MiB; belum DES/RC4; nama file masih plaintext |
+| Role `patient`/`doctor` (kolom `role` pada `User`) dan `GET /api/users/me` | Sudah di `main` (PR #3 dan #4); endpoint dokter sudah ada untuk daftar pasien dan dokumen pasien |
+| Upload, daftar/metadata, dekripsi file umum (dokumen, video) | Ada; isi dan nama file dienkripsi AES, DES, dan RC4; batas 8 MiB |
 | Library DES (mode CTR), RC4, CTR generik, envelope `DES1` dan `RC41` | Selesai di `backend/utils/`; diuji terhadap vektor resmi dan stdlib (`crypto/des`, `crypto/rc4`, `cipher.NewCTR`); CI hijau |
 | Benchmark mikro tiga cipher | Selesai; hasil dan temuan di [benchmark.txt](benchmark.txt) |
-| Profil pasien (`POST/GET /api/patients/me/profile`) | Ada; NIK dan nomor BPJS dienkripsi ×3, kolom lain plaintext (lihat bagian 6) |
+| Profil pasien (`POST/GET /api/patients/me/profile`) | Ada; berat, tinggi, umur, NIK, dan nomor BPJS dienkripsi AES, DES, dan RC4 |
 | KTP pasien (`POST/GET /api/patients/me/ktp`, `GET /api/patients/me/ktp/photo`) | Ada; seluruh field dan foto dienkripsi ×3, dibaca dengan pencocokan hasil dekripsi ketiga cipher |
 | Rekam medis, draf/final, version history | Belum ada model maupun endpoint |
-| Frontend (Svelte) | Login, registrasi, sesi dan role; fitur lain belum diverifikasi dalam pembaruan ini |
+| Frontend (Svelte) | Login, registrasi, portal pasien, dan portal dokter terhubung ke backend; rekam medis masih data contoh |
 | CI | `go test -race ./...` dan cek frontend pada PR ([CI.md](CI.md)) |
 | Pengukuran makro dan analisis ciphertext | Selesai: [benchmark.txt](benchmark.txt) (mikro), [ciphertext-analysis.txt](ciphertext-analysis.txt), dan [macro-benchmark.txt](macro-benchmark.txt) (HTTP, per cipher). Pembacaan profil/KTP tetap mendekripsi ketiga cipher sekaligus; download file mendekripsi cipher pilihan saja |
-| Perlindungan seluruh data sensitif dengan tiga cipher | **Belum terpenuhi:** file umum masih AES, `User.Name` dan nama file masih plaintext, serta pengecualian profil di bagian 6 |
+| Perlindungan seluruh data sensitif dengan tiga cipher | Terpenuhi untuk data pribadi dan file; ID, role, ukuran dan tipe file, serta lokasi file tetap teks biasa |
 
-Role baru menyediakan fondasi identitas, **belum RBAC rumah sakit lengkap**: semua endpoint pasien dan file masih berbasis pemilik. Kolom role dibuat lewat `AutoMigrate` pada model `User` dan juga tersedia sebagai migration SQL. Empat migration (`000001` timing AES, `000002` role, `000003` profil pasien, `000004` KTP) ada di `backend/migrations/`; urutan terapkan dan rollback ada di README folder itu.
+Role baru menyediakan fondasi identitas, **belum RBAC rumah sakit lengkap**: dokter sudah bisa membuka dokumen pasien, tetapi belum ada pembatasan per dokter. Kolom role dibuat lewat `AutoMigrate` pada model `User` dan juga tersedia sebagai migration SQL. Tujuh migration (`000001` sampai `000007`) ada di `backend/migrations/`; urutan terapkan dan rollback ada di README folder itu.
 
 Preview HTML dari ZIP, bila dipakai, adalah **demo dengan data contoh**, bukan frontend final. Login/upload/enkripsi/download dalam preview itu tidak boleh dianggap operasi backend sungguhan. Jangan menimpa repo utama dengan ZIP tanpa membandingkan kode.
 
@@ -115,7 +118,7 @@ Informasi kesehatan merupakan data pribadi spesifik menurut UU PDP. Identitas, k
 
 ## 6. Cakupan enkripsi yang disepakati
 
-> **Perubahan keputusan untuk profil pasien:** atas permintaan terbaru pengguna, schema `patient_profiles` menyimpan berat, tinggi, dan umur sebagai plaintext; hanya NIK dan nomor BPJS yang disiapkan sebagai tiga representasi terenkripsi. Ini pengecualian terhadap rancangan awal di bawah dan berpotensi bertentangan dengan ketentuan assignment melindungi seluruh data. Endpoint create `POST /api/patients/me/profile` sekarang menyediakan enkripsi NIK/BPJS dengan AES, DES, dan RC4 untuk record baru. Kedua kolom RC4 profil tetap nullable demi kompatibilitas record lama dari tahap AES/DES; backfill record lama belum disediakan/dijalankan. GET `/api/patients/me/profile` tersedia untuk pasien membaca profil sendiri dengan verifikasi kecocokan hasil dekripsi; GET `/api/patients/me/ktp` dan GET `/api/patients/me/ktp/photo` tersedia untuk pasien membaca data/foto sendiri; POST `/api/patients/me/ktp` tersedia untuk membuat data dan foto KTP sendiri dengan tiga cipher dalam satu record PostgreSQL. NIK bersumber dari profil; tidak ada overwrite/upsert. Update/delete belum tersedia. Kontrak endpoint KTP dan checklist lima endpoint pasien ada di API.md bagian 10. Detail schema dan batasannya ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Jangan menyatakan seluruh data sensitif sudah terlindungi.
+> **Perubahan keputusan untuk profil pasien:** berat, tinggi, umur, NIK, dan nomor BPJS disimpan terenkripsi AES, DES, dan RC4. Endpoint create `POST /api/patients/me/profile` sekarang menyediakan enkripsi NIK/BPJS dengan AES, DES, dan RC4 untuk record baru. Kedua kolom RC4 profil tetap nullable demi kompatibilitas record lama dari tahap AES/DES; backfill record lama belum disediakan/dijalankan. GET `/api/patients/me/profile` tersedia untuk pasien membaca profil sendiri dengan verifikasi kecocokan hasil dekripsi; GET `/api/patients/me/ktp` dan GET `/api/patients/me/ktp/photo` tersedia untuk pasien membaca data/foto sendiri; POST `/api/patients/me/ktp` tersedia untuk membuat data dan foto KTP sendiri dengan tiga cipher dalam satu record PostgreSQL. NIK bersumber dari profil; tidak ada overwrite/upsert. Update/delete belum tersedia. Kontrak endpoint KTP dan checklist lima endpoint pasien ada di API.md bagian 10. Detail schema dan batasannya ada di [PATIENT_PROFILES.md](PATIENT_PROFILES.md). Jangan menyatakan seluruh data sensitif sudah terlindungi.
 
 Setiap isi sensitif disimpan sebagai **tiga representasi terenkripsi dari plaintext yang sama**, masing-masing AES, DES, dan RC4. Bukan pengguna memilih satu cipher saat upload lalu dua cipher lain tidak digunakan.
 
@@ -129,7 +132,7 @@ Cakupannya meliputi:
 
 Password tetap disimpan sebagai hash password yang sesuai (bcrypt sudah digunakan), bukan plaintext atau enkripsi reversibel tiga cipher.
 
-Metadata untuk query perlu dirancang eksplisit. Identitas relasi pasien/penulis, versi, status, waktu, ukuran, tipe file, dan lokasi ciphertext adalah **daftar yang perlu ditinjau**, bukan otomatis daftar field yang boleh plaintext. Tentukan field minimum yang dibutuhkan untuk query, risiko kebocorannya, serta field mana yang masuk payload terenkripsi. Penyimpanan `User.Name` plaintext tidak lagi dianggap pengecualian yang sudah disetujui.
+Metadata untuk query perlu dirancang eksplisit. Identitas relasi pasien/penulis, versi, status, waktu, ukuran, tipe file, dan lokasi ciphertext adalah **daftar yang perlu ditinjau**, bukan otomatis daftar field yang boleh plaintext. Tentukan field minimum yang dibutuhkan untuk query, risiko kebocorannya, serta field mana yang masuk payload terenkripsi. `User.Name` dan username sekarang dienkripsi AES, DES, dan RC4.
 
 Persyaratan kriptografi:
 
@@ -142,7 +145,7 @@ Persyaratan kriptografi:
 
 ## 7. Cipher dan envelope — sudah diimplementasikan
 
-Bagian ini mencatat keputusan kriptografi yang sudah dikerjakan di `backend/utils/` (`des.go`, `rc4.go`, `modes.go`, `des_file.go`, `rc4_file.go`) dan dipakai oleh endpoint profil serta KTP pasien. Cipher dibuat tangan untuk tujuan edukasi; assignment membolehkan library, tetapi implementasi manual diverifikasi terhadap `crypto/aes`, `crypto/des`, `crypto/rc4` dan test vector resmi.
+Bagian ini mencatat keputusan kriptografi yang sudah dikerjakan di `backend/utils/` (`des.go`, `rc4.go`, `modes.go`, `des_file.go`, `rc4_file.go`) dan dipakai oleh endpoint akun, profil, KTP, dan file. Cipher dibuat tangan untuk tujuan edukasi; assignment membolehkan library, tetapi implementasi manual diverifikasi terhadap `crypto/aes`, `crypto/des`, `crypto/rc4` dan test vector resmi.
 
 ### Cipher dan penyimpanan
 
@@ -171,21 +174,21 @@ Sama seperti AES: key adalah master key, HMAC diverifikasi sebelum dekripsi, dan
 
 HMAC mencakup `magic ‖ IV/nonce ‖ ciphertext`. Label derivasi dan format ini sudah dipakai oleh endpoint profil dan KTP; mengubahnya membuat data yang sudah tersimpan tidak terbaca.
 
-Pemilihan algoritma saat dekripsi, misalnya `?algorithm=aes|des|rc4`, masih usulan API dan belum ada. Jika dipakai, hanya memilih representasi yang dibaca; penyimpanan tetap harus menghasilkan ketiganya. CTR sekarang menjadi mode DES (bukan lagi eksperimen tambahan). Karena AES tetap CBC, selisih AES dan DES pada benchmark mencampur efek cipher dan efek mode, jadi benchmark mikro juga mengukur AES dan DES pada CBC dan CTR yang sama agar kedua efek itu terpisah. Kunci DES unik per file, sehingga nonce tidak perlu berbagi blok dengan counter dan keystream tidak pernah dipakai ulang antar file.
+Pemilihan algoritma saat dekripsi lewat `?algorithm=aes|des|rc4` sudah tersedia; penyimpanan tetap menghasilkan ketiganya. CTR sekarang menjadi mode DES (bukan lagi eksperimen tambahan). Karena AES tetap CBC, selisih AES dan DES pada benchmark mencampur efek cipher dan efek mode, jadi benchmark mikro juga mengukur AES dan DES pada CBC dan CTR yang sama agar kedua efek itu terpisah. Kunci DES unik per file, sehingga nonce tidak perlu berbagi blok dengan counter dan keystream tidak pernah dipakai ulang antar file.
 
 ## 8. Usulan pembagian dan urutan kerja
 
-PIC memakai pembagian handoff lama dan **perlu dikonfirmasi ulang** karena scope aplikasi berubah; baris tanpa PIC tetap usulan. Kolom Status diperbarui terhadap `main` pada `57d06b2`. Tidak menetapkan deadline.
+PIC memakai pembagian handoff lama dan **perlu dikonfirmasi ulang** karena scope aplikasi berubah; baris tanpa PIC tetap usulan. Kolom Status diperbarui terhadap `main` pada `55bcc2d`. Tidak menetapkan deadline.
 
 | Bagian | PIC | Status | Cakupan |
 | --- | --- | --- | --- |
 | DES/RC4 dan envelope autentikasinya | Kamal (BE-2) | **Selesai** | Core, mode DES, derivasi kunci, format envelope, test vector, tampering test |
-| Evaluasi cipher | Kamal (BE-2), koordinasi dengan BE-1 | Sebagian | Benchmark mikro **selesai**; analisis ciphertext (overhead, entropi), pengukuran makro (download berulang), dan interpretasi untuk laporan **belum**. Makro menunggu pembacaan per cipher |
-| Role dan akses pasien/dokter | nopaalh (BE-1) | Sebagian | Role dan `GET /api/users/me` ada; provisioning dokter dan endpoint petugas belum |
+| Evaluasi cipher | Kamal (BE-2), koordinasi dengan BE-1 | **Selesai** | Benchmark mikro, analisis ciphertext, dan pengukuran makro per cipher sudah ada |
+| Role dan akses pasien/dokter | nopaalh (BE-1) | Sebagian | Role, `GET /api/users/me`, dan endpoint dokter ada; akun dokter masih dibuat lewat database |
 | Data pasien dan rekam medis | nopaalh (BE-1) | Sebagian | Profil dan KTP (buat dan baca) ada; relasi rekam medis, draf/final, versi, penulis, history belum |
-| Integrasi tiga cipher | nopaalh (BE-1), memakai kontrak BE-2 | Sebagian | Profil dan KTP sudah ×3; file umum (dokumen, video) masih AES, metadata privat belum |
-| Kontrak frontend/backend | Tim frontend bersama BE-1 | Sebagian | Login, registrasi, sesi ada; form data pasien, upload dan unduh dokumen belum diverifikasi |
-| Dokumentasi format `DES1` dan `RC41` di `docs/` | Kamal (usulan, belum disepakati) | Belum | `FILES.md` masih menyebut belum ada RC4/DES |
+| Integrasi tiga cipher | nopaalh (BE-1), memakai kontrak BE-2 | **Selesai** | Akun, profil, KTP, dan file dienkripsi AES, DES, dan RC4 |
+| Kontrak frontend/backend | Tim frontend bersama BE-1 | **Selesai** | Semua halaman terhubung ke backend, kecuali rekam medis |
+| Dokumentasi format `DES1` dan `RC41` di `docs/` | Kamal (usulan, belum disepakati) | **Selesai** | Format `DES1` dan `RC41` sudah didokumentasikan |
 | Klasifikasi data pribadi UU PDP/GDPR untuk laporan | Tim (belum ada PIC) | Belum | Tabel data umum vs spesifik dan rujukan pasal |
 | Target waktu upload dan batas ukuran video | Tim (belum ada PIC) | Belum | Dasar angka ada di [benchmark.txt](benchmark.txt) |
 | Laporan 2 halaman, tautan dan screenshot percakapan AI | Semua anggota | Belum | Setiap anggota yang memakai AI menyertakan tautan dan screenshot sendiri |
