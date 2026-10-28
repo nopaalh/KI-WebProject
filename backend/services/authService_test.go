@@ -36,7 +36,7 @@ func TestRegisterMapsDuplicateUsername(t *testing.T) {
 			if err := db.Callback().Create().Before("gorm:create").Register("database_failure", func(db *gorm.DB) { db.AddError(tc.dbError) }); err != nil {
 				t.Fatal(err)
 			}
-			service := NewAuthService(repositories.NewUserRepository(db))
+			service := NewAuthService(repositories.NewUserRepository(db), [32]byte{})
 			err = service.Register("Test Patient", "test_patient", "synthetic-password")
 			want := tc.want
 			if want == nil {

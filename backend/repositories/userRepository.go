@@ -26,11 +26,11 @@ func (r *UserRepository) FindByID(id uint) (*models.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepository) FindByUsername(username string) (*models.User, error) {
+func (r *UserRepository) FindByUsernameIndex(index []byte) (*models.User, error) {
 	var user models.User
 
 	err := r.DB.
-		Where("username = ?", username).
+		Where("username_index = ?", index).
 		First(&user).
 		Error
 

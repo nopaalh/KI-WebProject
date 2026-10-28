@@ -6,9 +6,11 @@ type File struct {
 	UserID           uint  `gorm:"not null;index"`
 	PatientProfileID *uint `gorm:"index"`
 
-	OriginalName string `gorm:"not null"`
-	OriginalSize int64  `gorm:"not null"`
-	OriginalType string `gorm:"not null"`
+	OriginalNameAES []byte `gorm:"column:original_name_aes;not null" json:"-"`
+	OriginalNameDES []byte `gorm:"column:original_name_des;not null" json:"-"`
+	OriginalNameRC4 []byte `gorm:"column:original_name_rc4;not null" json:"-"`
+	OriginalSize    int64  `gorm:"not null"`
+	OriginalType    string `gorm:"not null"`
 
 	// Version 0 is historical AES-only storage; version 1 requires all three ciphers.
 	CipherSetVersion int `gorm:"not null;default:0"`

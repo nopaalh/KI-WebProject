@@ -68,9 +68,13 @@ func (c *FileController) upload(ctx *gin.Context, patientID *uint) {
 		fileError(ctx, err)
 		return
 	}
+	body, ok := c.fileJSON(ctx, saved)
+	if !ok {
+		return
+	}
 	ctx.JSON(http.StatusCreated, gin.H{
 		"message": "File encrypted and saved successfully",
-		"file":    fileResponse(saved),
+		"file":    body,
 	})
 }
 
@@ -106,7 +110,11 @@ func (c *FileController) list(ctx *gin.Context, patientID *uint) {
 
 	response := make([]gin.H, 0, len(files))
 	for i := range files {
-		response = append(response, fileResponse(&files[i]))
+		body, ok := c.fileJSON(ctx, &files[i])
+		if !ok {
+			return
+		}
+		response = append(response, body)
 	}
 	ctx.JSON(http.StatusOK, gin.H{"files": response})
 }
@@ -126,7 +134,11 @@ func (c *FileController) Get(ctx *gin.Context) {
 		fileError(ctx, err)
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"file": fileResponse(file)})
+	body, ok := c.fileJSON(ctx, file)
+	if !ok {
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"file": body})
 }
 
 func (c *FileController) Decrypt(ctx *gin.Context) {
@@ -148,8 +160,12 @@ func (c *FileController) Decrypt(ctx *gin.Context) {
 		fileError(ctx, err)
 		return
 	}
-
-	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.OriginalName}))
+	name, err := c.FileService.OriginalName(file)
+	if err != nil {
+		fileError(ctx, err)
+		return
+	}
+	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	duration := file.AESDecryptTimeNS
 	if algorithm == "des" {
 		duration = file.DESDecryptTimeNS
@@ -162,7 +178,17 @@ func (c *FileController) Decrypt(ctx *gin.Context) {
 	ctx.Data(http.StatusOK, "application/octet-stream", plaintext)
 }
 
-func fileResponse(file *models.File) gin.H {
+// fileJSON mendekripsi nama berkas lalu menyusun JSON-nya
+func (c *FileController) fileJSON(ctx *gin.Context, file *models.File) (gin.H, bool) {
+	name, err := c.FileService.OriginalName(file)
+	if err != nil {
+		fileError(ctx, err)
+		return nil, false
+	}
+	return fileResponse(file, name), true
+}
+
+func fileResponse(file *models.File, name string) gin.H {
 	algorithms := []string{}
 	for _, cipher := range []struct{ name, path string }{{"aes", file.AESPath}, {"des", file.DESPath}, {"rc4", file.RC4Path}} {
 		if cipher.path != "" {
@@ -173,7 +199,7 @@ func fileResponse(file *models.File) gin.H {
 		"id":                  file.ID,
 		"uploaded_by_user_id": file.UserID,
 		"patient_profile_id":  file.PatientProfileID,
-		"original_name":       file.OriginalName,
+		"original_name":       name,
 		"original_size":       file.OriginalSize,
 		"original_type":       file.OriginalType,
 		"algorithm":           services.AESFileAlgorithm,

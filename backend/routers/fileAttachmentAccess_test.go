@@ -53,12 +53,21 @@ func (r *fileRoutePatients) FindByUserID(id uint) (*models.PatientProfile, error
 	return r.FindByID(id)
 }
 
+// fileRouteKey sama dengan kunci yang dibuat newFileRouteFixture (byte 1 sampai 32)
+func fileRouteKey() (key [32]byte) {
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	return key
+}
+
 type fileRouteDirectory struct{}
 
-func (*fileRouteDirectory) ListPatients() ([]repositories.PatientSummary, error) {
-	return []repositories.PatientSummary{
-		{PatientProfileID: 7, UserID: 7, Name: "Patient Seven", Username: "patient7"},
-		{PatientProfileID: 8, UserID: 8, Name: "Patient Eight", Username: "patient8"},
+func (*fileRouteDirectory) ListPatients() ([]repositories.PatientRow, error) {
+	key := fileRouteKey()
+	return []repositories.PatientRow{
+		patientRowForTest(key, 7, 7, "Patient Seven", "patient7"),
+		patientRowForTest(key, 8, 8, "Patient Eight", "patient8"),
 	}, nil
 }
 
@@ -127,7 +136,9 @@ func TestDoctorPatientListingAndAttachmentFiltering(t *testing.T) {
 	first := uploadDoctorAttachment(t, f, 7, doctor, []byte("patient seven"))
 	second := uploadDoctorAttachment(t, f, 8, doctor, []byte("patient eight"))
 	// An unassigned historical file must not become visible to every doctor.
-	f.repo.files[99] = models.File{ID: 99, UserID: 8, OriginalName: "unassigned-legacy.bin"}
+	legacyFile := models.File{ID: 99, UserID: 8}
+	legacyFile.OriginalNameAES, legacyFile.OriginalNameDES, legacyFile.OriginalNameRC4 = sealForTest(fileRouteKey(), "unassigned-legacy.bin")
+	f.repo.files[99] = legacyFile
 	for _, tt := range []struct {
 		path string
 		ids  []uint

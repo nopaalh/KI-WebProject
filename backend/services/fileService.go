@@ -160,8 +160,12 @@ func (s *FileService) uploadForPatient(userID, patientProfileID uint, file *mult
 	}
 	newFile := &models.File{
 		UserID: userID, PatientProfileID: &patientProfileID, OriginalSize: int64(len(plaintext)), CipherSetVersion: 1,
-		OriginalName: filepath.Base(strings.ReplaceAll(file.Filename, "\\", "/")),
 		OriginalType: file.Header.Get("Content-Type"),
+	}
+	originalName := filepath.Base(strings.ReplaceAll(file.Filename, "\\", "/"))
+	newFile.OriginalNameAES, newFile.OriginalNameDES, newFile.OriginalNameRC4, err = encryptTriple(s.key, []byte(originalName))
+	if err != nil {
+		return nil, err
 	}
 	var paths []string
 	persisted := false
@@ -315,6 +319,15 @@ func (s *FileService) Decrypt(userID, fileID uint, algorithm string) (*models.Fi
 	_, _, decryptTime := fileCipherFields(file, algorithm)
 	*decryptTime = selectedDuration
 	return file, plaintext, nil
+}
+
+// OriginalName mendekripsi nama asli berkas; ketiga salinan harus lolos tag dan sama
+func (s *FileService) OriginalName(file *models.File) (string, error) {
+	name, err := decryptTriple(s.key, file.OriginalNameAES, file.OriginalNameDES, file.OriginalNameRC4)
+	if err != nil {
+		return "", ErrFileIntegrity
+	}
+	return string(name), nil
 }
 
 func (s *FileService) readCiphertext(path, algorithm string) ([]byte, error) {

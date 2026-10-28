@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -121,13 +122,14 @@ func TestFileServicePersistsCiphertextMetadataAndTimings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if file.ID == 0 || file.UserID != 7 || file.OriginalName != "report.bin" || file.OriginalSize != int64(len(original)) {
+	name, err := service.OriginalName(file)
+	if err != nil || file.ID == 0 || file.UserID != 7 || name != "report.bin" || file.OriginalSize != int64(len(original)) {
 		t.Fatalf("incorrect metadata: %+v", file)
 	}
 	if file.AESEncryptTimeNS <= 0 || file.AESDecryptTimeNS <= 0 {
 		t.Fatalf("missing measured durations: %+v", file)
 	}
-	if repo.files[file.ID] != *file {
+	if !reflect.DeepEqual(repo.files[file.ID], *file) {
 		t.Fatal("database metadata differs from returned metadata")
 	}
 	if filepath.Dir(file.AESPath) != dir {
@@ -178,7 +180,9 @@ func TestFileServiceEmptyAndDuplicateNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.AESPath == second.AESPath || first.OriginalName != "same.bin" || second.OriginalName != "same.bin" {
+	firstName, _ := service.OriginalName(first)
+	secondName, _ := service.OriginalName(second)
+	if first.AESPath == second.AESPath || firstName != "same.bin" || secondName != "same.bin" {
 		t.Fatal("filename sanitization or unique storage names failed")
 	}
 	_, plaintext, err := service.Decrypt(1, first.ID, "aes")
@@ -346,16 +350,16 @@ func TestFileServiceRejectsDamagedStoredFiles(t *testing.T) {
 
 func TestFileServiceListsOnlyOwnedFiles(t *testing.T) {
 	service, repo, _ := newTestFileService(t)
-	repo.files[1] = models.File{ID: 1, UserID: 7, OriginalName: "older.bin", AESEncryptTimeNS: 10, AESDecryptTimeNS: 20}
-	repo.files[2] = models.File{ID: 2, UserID: 8, OriginalName: "other-user.bin"}
-	repo.files[3] = models.File{ID: 3, UserID: 7, OriginalName: "newer.bin", AESEncryptTimeNS: 30, AESDecryptTimeNS: 40}
+	repo.files[1] = models.File{ID: 1, UserID: 7, AESEncryptTimeNS: 10, AESDecryptTimeNS: 20}
+	repo.files[2] = models.File{ID: 2, UserID: 8}
+	repo.files[3] = models.File{ID: 3, UserID: 7, AESEncryptTimeNS: 30, AESDecryptTimeNS: 40}
 
 	files, err := service.List(7)
 	if err != nil || len(files) != 2 {
 		t.Fatalf("expected two owned files, got %v: %v", files, err)
 	}
 	for i, id := range []uint{3, 1} {
-		if files[i] != repo.files[id] {
+		if !reflect.DeepEqual(files[i], repo.files[id]) {
 			t.Fatalf("file %d metadata/order mismatch: %+v", i, files[i])
 		}
 	}

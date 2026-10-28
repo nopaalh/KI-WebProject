@@ -73,10 +73,10 @@ func TestPatientProfileFindByUserIDPropagatesErrors(t *testing.T) {
 func TestPatientProfileCreateBindsEncryptedFieldsAndUserID(t *testing.T) {
 	repo := newDryRunPatientProfileRepository(t)
 	profile := &models.PatientProfile{
-		UserID:        7,
-		WeightKG:      65.5,
-		HeightCM:      170.5,
-		Age:           30,
+		UserID:      7,
+		WeightKGAES: []byte{0x10}, WeightKGDES: []byte{0x11}, WeightKGRC4: []byte{0x12},
+		HeightCMAES: []byte{0x20}, HeightCMDES: []byte{0x21}, HeightCMRC4: []byte{0x22},
+		AgeAES: []byte{0x30}, AgeDES: []byte{0x31}, AgeRC4: []byte{0x32},
 		NIKAES:        []byte{0x00, 0xff, 0x01},
 		NIKDES:        []byte{0x02, 0xfe, 0x00},
 		NIKRC4:        []byte{0x05, 0xfb, 0x00},
@@ -102,12 +102,15 @@ func TestPatientProfileCreateBindsEncryptedFieldsAndUserID(t *testing.T) {
 	if creates != 1 {
 		t.Fatalf("expected one create with no association inserts, got %d", creates)
 	}
-	wantQuery := `INSERT INTO "patient_profiles" ("user_id","user_role","weight_kg","height_cm","age","nik_aes","nik_des","nik_rc4","bpjs_number_aes","bpjs_number_des","bpjs_number_rc4") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING "id"`
+	wantQuery := `INSERT INTO "patient_profiles" ("user_id","user_role","weight_kg_aes","weight_kg_des","weight_kg_rc4","height_cm_aes","height_cm_des","height_cm_rc4","age_aes","age_des","age_rc4","nik_aes","nik_des","nik_rc4","bpjs_number_aes","bpjs_number_des","bpjs_number_rc4") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING "id"`
 	if query != wantQuery {
 		t.Fatalf("unexpected insert SQL: %s", query)
 	}
 	wantArgs := []any{
-		uint(7), "patient", float64(65.5), float64(170.5), 30,
+		uint(7), "patient",
+		profile.WeightKGAES, profile.WeightKGDES, profile.WeightKGRC4,
+		profile.HeightCMAES, profile.HeightCMDES, profile.HeightCMRC4,
+		profile.AgeAES, profile.AgeDES, profile.AgeRC4,
 		profile.NIKAES, profile.NIKDES, profile.NIKRC4,
 		profile.BPJSNumberAES, profile.BPJSNumberDES, profile.BPJSNumberRC4,
 	}

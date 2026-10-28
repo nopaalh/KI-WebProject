@@ -101,7 +101,7 @@ func (c *PatientProfileController) Create(ctx *gin.Context) {
 		"message": "Patient profile created",
 		"profile": gin.H{
 			"id": profile.ID, "user_id": profile.UserID,
-			"weight_kg": profile.WeightKG, "height_cm": profile.HeightCM, "age": profile.Age,
+			"weight_kg": input.WeightKG, "height_cm": input.HeightCM, "age": *input.Age,
 		},
 		"encryption": gin.H{"active": []string{"aes", "des", "rc4"}, "pending": []string{}},
 	})
